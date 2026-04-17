@@ -122,7 +122,7 @@ class OrbitCamera:
         self.pitch = max(-89.0, min(89.0, self.pitch + dy))
 
     def zoom(self, delta: float) -> None:
-        """Multiply distance by ``(1 - delta * 0.1)``.
+        """Multiply distance by ``(1 + delta * 0.1)``.
 
         Distance is clamped to [10, 2000].
         """
