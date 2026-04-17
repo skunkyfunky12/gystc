@@ -7,6 +7,7 @@ Call order:
     scene.update_positions(new_positions)    # after each physics tick
 """
 
+import ctypes
 from pathlib import Path
 
 import numpy as np
@@ -207,10 +208,10 @@ class Scene:
         # -- Stars ----------------------------------------------------------
         glUseProgram(self._prog_star)
         glUniformMatrix4fv(
-            glGetUniformLocation(self._prog_star, "u_view"), 1, GL_FALSE, view
+            glGetUniformLocation(self._prog_star, "u_view"), 1, GL_TRUE, view
         )
         glUniformMatrix4fv(
-            glGetUniformLocation(self._prog_star, "u_proj"), 1, GL_FALSE, proj
+            glGetUniformLocation(self._prog_star, "u_proj"), 1, GL_TRUE, proj
         )
         glBindVertexArray(self._star_vao)
         glDrawArrays(GL_POINTS, 0, self._star_count)
@@ -218,10 +219,10 @@ class Scene:
         # -- Edges ----------------------------------------------------------
         glUseProgram(self._prog_edge)
         glUniformMatrix4fv(
-            glGetUniformLocation(self._prog_edge, "u_view"), 1, GL_FALSE, view
+            glGetUniformLocation(self._prog_edge, "u_view"), 1, GL_TRUE, view
         )
         glUniformMatrix4fv(
-            glGetUniformLocation(self._prog_edge, "u_proj"), 1, GL_FALSE, proj
+            glGetUniformLocation(self._prog_edge, "u_proj"), 1, GL_TRUE, proj
         )
         glBindVertexArray(self._edge_vao)
         glDrawArrays(GL_LINES, 0, self._edge_vertex_count)
@@ -229,10 +230,10 @@ class Scene:
         # -- Nodes (instanced billboards) -----------------------------------
         glUseProgram(self._prog_node)
         glUniformMatrix4fv(
-            glGetUniformLocation(self._prog_node, "u_view"), 1, GL_FALSE, view
+            glGetUniformLocation(self._prog_node, "u_view"), 1, GL_TRUE, view
         )
         glUniformMatrix4fv(
-            glGetUniformLocation(self._prog_node, "u_proj"), 1, GL_FALSE, proj
+            glGetUniformLocation(self._prog_node, "u_proj"), 1, GL_TRUE, proj
         )
         glUniform1f(glGetUniformLocation(self._prog_node, "u_time"), float(time))
         glBindVertexArray(self._node_vao)
@@ -252,7 +253,7 @@ class Scene:
 
         # -- Colours (per instance, static) --------------------------------
         colors = np.array(
-            [REGIONS[COMMUNITY_TO_REGION[n["community"]]]["color"] for n in nodes],
+            [REGIONS[COMMUNITY_TO_REGION[n.get("community", 0)]]["color"] for n in nodes],
             dtype=np.float32,
         )  # shape (N, 3)
 
@@ -266,7 +267,7 @@ class Scene:
         # For each region, find the node index with the highest degree.
         region_hub: dict[int, tuple[int, int]] = {}  # region_idx -> (best_degree, node_idx)
         for node_idx, n in enumerate(nodes):
-            region_idx = COMMUNITY_TO_REGION[n["community"]]
+            region_idx = COMMUNITY_TO_REGION[n.get("community", 0)]
             deg = degree.get(node_idx, 0)
             if region_idx not in region_hub or deg > region_hub[region_idx][0]:
                 region_hub[region_idx] = (deg, node_idx)
@@ -368,7 +369,6 @@ class Scene:
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, None)
 
         # a_color (loc=1): vec4 at byte offset 12
-        import ctypes
         glEnableVertexAttribArray(1)
         glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(12))
 

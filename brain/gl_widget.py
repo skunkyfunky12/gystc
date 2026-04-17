@@ -59,6 +59,14 @@ class BrainGLWidget(QOpenGLWidget):
 
     def initializeGL(self) -> None:
         """Set up GL state and start the render timer."""
+        import sys
+        try:
+            from OpenGL.GL import glGetString, GL_VERSION, GL_RENDERER
+            print(f"OpenGL: {glGetString(GL_VERSION)}")
+            print(f"GPU: {glGetString(GL_RENDERER)}")
+        except Exception as e:
+            print(f"Could not query GL info: {e}", file=sys.stderr)
+
         glClearColor(3 / 255, 5 / 255, 8 / 255, 1.0)
 
         glEnable(GL_BLEND)
@@ -66,7 +74,13 @@ class BrainGLWidget(QOpenGLWidget):
         glEnable(GL_PROGRAM_POINT_SIZE)
         glEnable(GL_DEPTH_TEST)
 
-        self._scene.init_gl()
+        try:
+            self._scene.init_gl()
+            print("Scene GL initialized OK")
+        except Exception as e:
+            print(f"Scene init_gl FAILED: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
@@ -86,7 +100,13 @@ class BrainGLWidget(QOpenGLWidget):
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         view = self._camera.get_view_matrix()
         proj = self._camera.get_projection_matrix(self.width(), self.height())
-        self._scene.render(view, proj, self._time)
+        try:
+            self._scene.render(view, proj, self._time)
+        except Exception as e:
+            if not getattr(self, '_render_error_logged', False):
+                import sys
+                print(f"Render error: {e}", file=sys.stderr)
+                self._render_error_logged = True
 
     def resizeGL(self, w: int, h: int) -> None:
         """Update the GL viewport when the widget is resized."""
