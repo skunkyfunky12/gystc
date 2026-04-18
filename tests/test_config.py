@@ -1,8 +1,7 @@
 # tests/test_config.py
 import json
-import os
 from pathlib import Path
-from brain_mcp.config import BrainConfig, load_config
+from brain_mcp.config import load_config
 
 def test_load_config_from_file(tmp_path):
     config_dir = tmp_path / ".neural-brain"
