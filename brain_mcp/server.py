@@ -1,16 +1,15 @@
 from __future__ import annotations
 import json
-import re
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from brain_mcp.config import BrainConfig, load_config
 from brain_mcp.indexer.embedder import SentenceTransformerBackend
-from brain_mcp.indexer.scanner import scan_vault, compute_content_hash, REGION_TAG_TO_IDX, _BRAIN_TAG_RE
+from brain_mcp.indexer.pipeline import index_vault
+from brain_mcp.indexer.scanner import parse_note_file
 from brain_mcp.indexer.vector_store import VectorStore
 from brain_mcp.indexer.watcher import BrainWatcher
 from brain_mcp.storage.database import BrainDB
@@ -34,45 +33,8 @@ def _index_vault(state: BrainState) -> None:
     """Scan vault, skip unchanged files, upsert notes, embed new/changed, build edges."""
     if state.config.vault_path is None or not state.config.vault_path.is_dir():
         return
-    notes = scan_vault(state.config.vault_path, state.config.folder_to_region)
-    title_to_id: dict[str, int] = {}
-    to_embed: list[tuple[int, str]] = []
-
-    for note in notes:
-        existing_hash = state.db.get_content_hash(note["path"])
-        if existing_hash == note["content_hash"]:
-            row = state.db.get_note_by_path(note["path"])
-            if row:
-                title_to_id[note["title"]] = row["id"]
-            continue
-        note_id = state.db.upsert_note(
-            path=note["path"], title=note["title"], content=note["content"],
-            content_hash=note["content_hash"], region_idx=note["region_idx"],
-            tags=note["tags"], word_count=note["word_count"],
-            created_at=note["created_at"], modified_at=note["modified_at"],
-        )
-        title_to_id[note["title"]] = note_id
-        to_embed.append((note_id, note["content"]))
-
-    if to_embed:
-        texts = [t for _, t in to_embed]
-        try:
-            vecs = state.embedder.embed(texts)
-            faiss_ids = state.vectors.add(vecs)
-            for (note_id, _), fid in zip(to_embed, faiss_ids):
-                state.db.set_faiss_idx(note_id, fid)
-        except Exception as exc:
-            print(f"Embedding error during indexing: {exc}", file=sys.stderr)
-        print(f"Indexed {len(to_embed)} new/changed notes.", file=sys.stderr)
-
-    for note in notes:
-        src_id = title_to_id.get(note["title"])
-        if src_id is None:
-            continue
-        for bl_title in note.get("backlink_titles", []):
-            tgt_id = title_to_id.get(bl_title)
-            if tgt_id and src_id != tgt_id:
-                state.db.upsert_edge(src_id, tgt_id, link_text=bl_title)
+    index_vault(state.db, state.vectors, state.embedder,
+                state.config.vault_path, state.config.folder_to_region)
 
 
 def _handle_file_change(state: BrainState, path: str, event_type: str) -> None:
@@ -82,30 +44,35 @@ def _handle_file_change(state: BrainState, path: str, event_type: str) -> None:
     except ValueError:
         return
     if event_type == "deleted":
+        # Remove FAISS vector before deleting the note
+        old_row = state.db.get_note_by_path(rel)
+        if old_row and old_row["faiss_idx"] is not None:
+            state.vectors.remove([old_row["faiss_idx"]])
         state.db.delete_note(rel)
         return
-    try:
-        text = Path(path).read_text(encoding="utf-8", errors="replace")
-    except OSError:
+
+    # Use shared parse_note_file instead of reimplementing tag extraction
+    note = parse_note_file(Path(path), state.config.vault_path, state.config.folder_to_region)
+    if note is None:
         return
 
-    content_hash = compute_content_hash(text)
-    if state.db.get_content_hash(rel) == content_hash:
+    if state.db.get_content_hash(rel) == note["content_hash"]:
         return
 
-    brain_tags = _BRAIN_TAG_RE.findall(text)
-    region_idx = REGION_TAG_TO_IDX.get(brain_tags[0], 9) if brain_tags else 9
-    all_tags = list(set(re.findall(r"#[\w/-]+", text)))[:20]
-    word_count = len(text.split())
-    now = datetime.now(timezone.utc)
+    # Read old FAISS index before upsert to remove ghost vector
+    old_row = state.db.get_note_by_path(rel)
+    old_faiss_idx = old_row["faiss_idx"] if old_row and old_row["faiss_idx"] is not None else None
 
     note_id = state.db.upsert_note(
-        path=rel, title=Path(path).stem, content=text, content_hash=content_hash,
-        region_idx=region_idx, tags=all_tags, word_count=word_count,
-        created_at=now.strftime("%Y-%m-%d"), modified_at=now.isoformat(),
+        path=note["path"], title=note["title"], content=note["content"],
+        content_hash=note["content_hash"], region_idx=note["region_idx"],
+        tags=note["tags"], word_count=note["word_count"],
+        created_at=note["created_at"], modified_at=note["modified_at"],
     )
     try:
-        vec = state.embedder.embed([text])
+        vec = state.embedder.embed([note["content"]])
+        if old_faiss_idx is not None:
+            state.vectors.remove([old_faiss_idx])
         faiss_ids = state.vectors.add(vec)
         state.db.set_faiss_idx(note_id, faiss_ids[0])
     except Exception as exc:
@@ -118,8 +85,8 @@ async def brain_lifespan(server: FastMCP) -> AsyncIterator[BrainState]:
     config = load_config()
     config.data_dir.mkdir(parents=True, exist_ok=True)
     db = BrainDB(config.db_path)
-    vectors = VectorStore.load(config.index_path, dimension=384)
     embedder = SentenceTransformerBackend(config.model_name)
+    vectors = VectorStore.load(config.index_path, dimension=embedder.dimension)
     state = BrainState(config=config, db=db, vectors=vectors, embedder=embedder)
     print(f"Brain MCP Server started. Vault: {config.vault_path}", file=sys.stderr)
     print(f"DB: {config.db_path} | Index: {vectors.size} vectors", file=sys.stderr)
@@ -201,7 +168,7 @@ def brain_store(title: str, content: str, region: str | None = None, region_idx:
     return handle_brain_store(
         state.db, state.vectors, state.embedder, state.config.vault_path,
         title=title, content=content, region=region, region_idx=region_idx,
-        tags=tags, folder=folder, pending_writes=state.watcher._pending_writes if state.watcher else {},
+        tags=tags, folder=folder, watcher=state.watcher,
     )
 
 @mcp.tool()

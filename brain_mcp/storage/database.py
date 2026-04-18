@@ -14,11 +14,12 @@ class BrainDB:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         run_migrations(self._conn)
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
-        return self._conn.execute(sql, params)
+        with self._lock:
+            return self._conn.execute(sql, params)
 
     def close(self) -> None:
         self._conn.close()
@@ -70,24 +71,29 @@ class BrainDB:
             self._conn.commit()
 
     def get_note_by_path(self, path: str) -> sqlite3.Row | None:
-        return self._conn.execute("SELECT * FROM notes WHERE path=?", (path,)).fetchone()
+        with self._lock:
+            return self._conn.execute("SELECT * FROM notes WHERE path=?", (path,)).fetchone()
 
     def get_note_by_title(self, title: str) -> sqlite3.Row | None:
-        return self._conn.execute("SELECT * FROM notes WHERE title=?", (title,)).fetchone()
+        with self._lock:
+            return self._conn.execute("SELECT * FROM notes WHERE title=?", (title,)).fetchone()
 
     def get_note_by_id(self, note_id: int) -> sqlite3.Row | None:
-        return self._conn.execute("SELECT * FROM notes WHERE id=?", (note_id,)).fetchone()
+        with self._lock:
+            return self._conn.execute("SELECT * FROM notes WHERE id=?", (note_id,)).fetchone()
 
     def get_all_notes(self) -> list[sqlite3.Row]:
-        return self._conn.execute("SELECT * FROM notes ORDER BY id").fetchall()
+        with self._lock:
+            return self._conn.execute("SELECT * FROM notes ORDER BY id").fetchall()
 
     def get_notes_by_faiss_indices(self, indices: list[int]) -> list[sqlite3.Row]:
         if not indices:
             return []
         placeholders = ",".join("?" for _ in indices)
-        return self._conn.execute(
-            f"SELECT * FROM notes WHERE faiss_idx IN ({placeholders})", tuple(indices)
-        ).fetchall()
+        with self._lock:
+            return self._conn.execute(
+                f"SELECT * FROM notes WHERE faiss_idx IN ({placeholders})", tuple(indices)
+            ).fetchall()
 
     def delete_note(self, path: str) -> None:
         with self._lock:
@@ -108,61 +114,80 @@ class BrainDB:
             self._conn.commit()
 
     def get_edges_for_note(self, note_id: int) -> list[sqlite3.Row]:
-        return self._conn.execute(
-            "SELECT * FROM edges WHERE source_id=? OR target_id=?", (note_id, note_id)
-        ).fetchall()
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM edges WHERE source_id=? OR target_id=?", (note_id, note_id)
+            ).fetchall()
 
     def get_neighbor_ids(self, note_id: int, depth: int = 1) -> set[int]:
-        visited: set[int] = set()
-        frontier = {note_id}
-        for _ in range(depth):
-            if not frontier:
-                break
-            placeholders = ",".join("?" for _ in frontier)
-            rows = self._conn.execute(
-                f"SELECT source_id, target_id FROM edges WHERE source_id IN ({placeholders}) OR target_id IN ({placeholders})",
-                tuple(frontier) + tuple(frontier),
-            ).fetchall()
-            next_frontier: set[int] = set()
-            for r in rows:
-                next_frontier.add(r["source_id"])
-                next_frontier.add(r["target_id"])
+        with self._lock:
+            visited: set[int] = set()
+            frontier = {note_id}
+            for _ in range(depth):
+                if not frontier:
+                    break
+                placeholders = ",".join("?" for _ in frontier)
+                rows = self._conn.execute(
+                    f"SELECT source_id, target_id FROM edges WHERE source_id IN ({placeholders}) OR target_id IN ({placeholders})",
+                    tuple(frontier) + tuple(frontier),
+                ).fetchall()
+                next_frontier: set[int] = set()
+                for r in rows:
+                    next_frontier.add(r["source_id"])
+                    next_frontier.add(r["target_id"])
+                visited |= frontier
+                frontier = next_frontier - visited
             visited |= frontier
-            frontier = next_frontier - visited
-        visited |= frontier
-        visited.discard(note_id)
-        return visited
+            visited.discard(note_id)
+            return visited
+
+    @staticmethod
+    def _sanitize_fts_query(query: str) -> str:
+        """Wrap each word in double quotes to escape FTS5 special operators."""
+        words = query.split()
+        if not words:
+            return '""'
+        return " ".join(f'"{w}"' for w in words)
 
     def fts_search(self, query: str, limit: int = 10) -> list[sqlite3.Row]:
-        return self._conn.execute(
-            """SELECT n.*, rank FROM notes_fts
-               JOIN notes n ON n.id = notes_fts.rowid
-               WHERE notes_fts MATCH ?
-               ORDER BY rank LIMIT ?""",
-            (query, limit),
-        ).fetchall()
+        safe_query = self._sanitize_fts_query(query)
+        with self._lock:
+            try:
+                return self._conn.execute(
+                    """SELECT n.*, rank FROM notes_fts
+                       JOIN notes n ON n.id = notes_fts.rowid
+                       WHERE notes_fts MATCH ?
+                       ORDER BY rank LIMIT ?""",
+                    (safe_query, limit),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                return []
 
     def get_recent_notes(self, days: int = 7, region_idx: int | None = None, limit: int = 20) -> list[sqlite3.Row]:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
-        if region_idx is not None:
+        with self._lock:
+            if region_idx is not None:
+                return self._conn.execute(
+                    "SELECT * FROM notes WHERE modified_at >= ? AND region_idx = ? ORDER BY modified_at DESC LIMIT ?",
+                    (cutoff, region_idx, limit),
+                ).fetchall()
             return self._conn.execute(
-                "SELECT * FROM notes WHERE modified_at >= ? AND region_idx = ? ORDER BY modified_at DESC LIMIT ?",
-                (cutoff, region_idx, limit),
+                "SELECT * FROM notes WHERE modified_at >= ? ORDER BY modified_at DESC LIMIT ?",
+                (cutoff, limit),
             ).fetchall()
-        return self._conn.execute(
-            "SELECT * FROM notes WHERE modified_at >= ? ORDER BY modified_at DESC LIMIT ?",
-            (cutoff, limit),
-        ).fetchall()
 
     def get_region_note_counts(self) -> dict[int, int]:
-        rows = self._conn.execute("SELECT region_idx, COUNT(*) as cnt FROM notes GROUP BY region_idx").fetchall()
-        return {r["region_idx"]: r["cnt"] for r in rows}
+        with self._lock:
+            rows = self._conn.execute("SELECT region_idx, COUNT(*) as cnt FROM notes GROUP BY region_idx").fetchall()
+            return {r["region_idx"]: r["cnt"] for r in rows}
 
     def get_all_regions(self) -> list[sqlite3.Row]:
-        return self._conn.execute("SELECT * FROM regions ORDER BY idx").fetchall()
+        with self._lock:
+            return self._conn.execute("SELECT * FROM regions ORDER BY idx").fetchall()
 
     def get_region(self, idx: int) -> sqlite3.Row | None:
-        return self._conn.execute("SELECT * FROM regions WHERE idx=?", (idx,)).fetchone()
+        with self._lock:
+            return self._conn.execute("SELECT * FROM regions WHERE idx=?", (idx,)).fetchone()
 
     def update_region(self, idx: int, description: str | None = None, color: str | None = None) -> None:
         with self._lock:
@@ -173,5 +198,6 @@ class BrainDB:
             self._conn.commit()
 
     def get_content_hash(self, path: str) -> str | None:
-        row = self._conn.execute("SELECT content_hash FROM notes WHERE path=?", (path,)).fetchone()
-        return row["content_hash"] if row else None
+        with self._lock:
+            row = self._conn.execute("SELECT content_hash FROM notes WHERE path=?", (path,)).fetchone()
+            return row["content_hash"] if row else None

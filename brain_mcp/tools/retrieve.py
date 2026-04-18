@@ -6,7 +6,7 @@ import json
 from brain_mcp.indexer.embedder import EmbeddingBackend
 from brain_mcp.indexer.vector_store import VectorStore
 from brain_mcp.storage.database import BrainDB
-from brain_mcp.tools.recent import REGION_NAMES, REGION_NAME_TO_IDX
+from brain_mcp.tools.recent import REGION_NAMES, REGION_NAME_TO_IDX, resolve_region_idx
 
 
 def _fts_snippet(db: BrainDB, note_id: int, query: str) -> str | None:
@@ -15,11 +15,12 @@ def _fts_snippet(db: BrainDB, note_id: int, query: str) -> str | None:
     Returns None if FTS doesn't match (pure semantic hit).
     """
     try:
+        safe_query = BrainDB._sanitize_fts_query(query)
         row = db.execute(
             """SELECT snippet(notes_fts, 1, '', '', '...', 40) AS snip
                FROM notes_fts
                WHERE notes_fts MATCH ? AND rowid = ?""",
-            (query, note_id),
+            (safe_query, note_id),
         ).fetchone()
         if row and row["snip"]:
             return row["snip"]
@@ -53,7 +54,7 @@ def handle_brain_retrieve(
     notes = db.get_notes_by_faiss_indices(faiss_indices)
     note_map = {n["faiss_idx"]: n for n in notes}
 
-    region_idx_filter = REGION_NAME_TO_IDX.get(region) if region else None
+    region_idx_filter = resolve_region_idx(region)
     results = []
     for faiss_id, score in zip(ids[0], scores[0]):
         faiss_id = int(faiss_id)
