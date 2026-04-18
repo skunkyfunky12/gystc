@@ -4,11 +4,18 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 DEFAULT_DATA_DIR = Path.home() / ".neural-brain"
+
+KNOWN_KEYS = {
+    "vault_path", "model_name", "embedding_backend", "auto_index",
+    "index_on_startup", "folder_to_region", "log_level",
+}
+VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
 
 
 @dataclass
@@ -33,6 +40,43 @@ class BrainConfig:
     @property
     def config_path(self) -> Path:
         return self.data_dir / "config.json"
+
+
+def validate_config(config: BrainConfig) -> list[str]:
+    errors: list[str] = []
+    if config.vault_path is not None and not config.vault_path.is_dir():
+        errors.append(f"vault_path is not a directory: {config.vault_path}")
+    if not config.model_name:
+        errors.append("model_name must not be empty")
+    if config.log_level not in VALID_LOG_LEVELS:
+        errors.append(f"log_level must be one of {sorted(VALID_LOG_LEVELS)}, got: {config.log_level}")
+    for folder, idx in config.folder_to_region.items():
+        if not isinstance(idx, int) or not (0 <= idx <= 11):
+            errors.append(f"folder_to_region[{folder!r}] must be 0-11, got: {idx}")
+    return errors
+
+
+def save_config(config: BrainConfig, path: Path | None = None) -> Path:
+    config.data_dir.mkdir(parents=True, exist_ok=True)
+    config_file = path or config.config_path
+    data = {
+        "vault_path": str(config.vault_path) if config.vault_path else None,
+        "model_name": config.model_name,
+        "auto_index": config.auto_index,
+        "index_on_startup": config.index_on_startup,
+        "folder_to_region": config.folder_to_region,
+        "log_level": config.log_level,
+    }
+    fd, tmp = tempfile.mkstemp(dir=config.data_dir, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+            f.write("\n")
+        Path(tmp).replace(config_file)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+    return config_file
 
 
 def load_config(config_dir: Path | None = None) -> BrainConfig:
