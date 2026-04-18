@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neural Brain MCP Server - Installation</title>
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --surface: #111827;
+    --border: #1e293b;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #06b6d4;
+    --accent2: #8b5cf6;
+    --green: #10b981;
+    --orange: #f59e0b;
+    --red: #ef4444;
+    --code-bg: #0d1117;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 2rem;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 2.2rem;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 0.5rem;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 1.1rem;
+    margin-bottom: 2.5rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1.5rem;
+  }
+  h2 {
+    font-size: 1.4rem;
+    color: var(--accent);
+    margin: 2.5rem 0 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  h2 .step-num {
+    background: var(--accent);
+    color: var(--bg);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  h3 {
+    font-size: 1.1rem;
+    color: var(--accent2);
+    margin: 1.5rem 0 0.5rem;
+  }
+  p { margin-bottom: 1rem; }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+    margin: 0.75rem 0 1.25rem;
+    font-size: 0.9rem;
+    line-height: 1.6;
+  }
+  code {
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    color: var(--green);
+  }
+  pre code { color: var(--text); }
+  .comment { color: var(--muted); }
+  .string { color: var(--green); }
+  .key { color: var(--accent); }
+  .val { color: var(--orange); }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+  }
+  .card.warn {
+    border-left: 4px solid var(--orange);
+  }
+  .card.success {
+    border-left: 4px solid var(--green);
+  }
+  .card.info {
+    border-left: 4px solid var(--accent);
+  }
+  .tool-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1rem 0;
+  }
+  .tool-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+  }
+  .tool-card h4 {
+    color: var(--accent2);
+    font-size: 1rem;
+    margin-bottom: 0.3rem;
+  }
+  .tool-card p {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin: 0;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+  }
+  th, td {
+    text-align: left;
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    color: var(--accent);
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  td code {
+    font-size: 0.85rem;
+    background: var(--code-bg);
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+  }
+  .tag {
+    display: inline-block;
+    background: var(--accent);
+    color: var(--bg);
+    font-size: 0.75rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-weight: 600;
+    margin-right: 0.3rem;
+  }
+  .tag.opt { background: var(--accent2); }
+  .arch-diagram {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    font-family: 'Cascadia Code', monospace;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    overflow-x: auto;
+    white-space: pre;
+    color: var(--muted);
+    margin: 1rem 0;
+  }
+  .arch-diagram .highlight { color: var(--accent); }
+  .arch-diagram .highlight2 { color: var(--accent2); }
+  .arch-diagram .highlight3 { color: var(--green); }
+  footer {
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.85rem;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<h1>Neural Brain MCP Server</h1>
+<p class="subtitle">Dein Obsidian Vault als semantisches Arbeitsgedaechtnis fuer Claude. 6 MCP Tools, FAISS Vektorsuche, SQLite + FTS5, Live-Sync per Watchdog.</p>
+
+<div class="arch-diagram"><span class="highlight">Obsidian Vault (.md files)</span>
+        |
+        v
+<span class="highlight2">Scanner</span> ──parse──> <span class="highlight2">Embedder</span> ──vectors──> <span class="highlight3">FAISS Index</span>
+        |                                          |
+        v                                          v
+   <span class="highlight2">SQLite + FTS5</span> <────── queries ────── <span class="highlight">MCP Server (stdio)</span>
+        |                                          |
+        v                                          v
+   <span class="highlight2">Watchdog</span> (live sync)              <span class="highlight">Claude Code / Desktop</span></div>
+
+<h2><span class="step-num">1</span> Voraussetzungen</h2>
+
+<table>
+  <tr><th>Was</th><th>Version</th><th>Check</th></tr>
+  <tr><td>Python</td><td><code>&gt;=3.11</code></td><td><code>python --version</code></td></tr>
+  <tr><td>pip</td><td>aktuell</td><td><code>pip --version</code></td></tr>
+  <tr><td>Git</td><td>beliebig</td><td><code>git --version</code></td></tr>
+  <tr><td>Obsidian</td><td>beliebig</td><td>Vault muss existieren</td></tr>
+  <tr><td>Claude Code</td><td>aktuell</td><td><code>claude --version</code></td></tr>
+</table>
+
+<h2><span class="step-num">2</span> Projekt klonen &amp; installieren</h2>
+
+<pre><code><span class="comment"># Repository klonen</span>
+git clone &lt;repo-url&gt; neural-brain
+cd neural-brain
+
+<span class="comment"># Paket installieren (editable mode fuer Entwicklung)</span>
+pip install -e .
+
+<span class="comment"># Dev-Dependencies fuer Tests</span>
+pip install -e ".[dev]"</code></pre>
+
+<div class="card info">
+  <strong>Bereits installiert?</strong> Check mit <code>pip show neural-brain</code>.
+  Update mit <code>pip install -e . --upgrade</code>.
+</div>
+
+<h2><span class="step-num">3</span> Brain konfigurieren</h2>
+
+<p>Die Config liegt unter <code>~/.neural-brain/config.json</code>. Erstelle sie oder passe an:</p>
+
+<pre><code>{
+    <span class="key">"vault_path"</span>: <span class="string">"C:\\Users\\DEIN_USER\\pfad\\zum\\Obsidian Vault"</span>,
+    <span class="key">"auto_index"</span>: <span class="val">true</span>,
+    <span class="key">"index_on_startup"</span>: <span class="val">true</span>,
+    <span class="key">"model_name"</span>: <span class="string">"paraphrase-multilingual-MiniLM-L12-v2"</span>,
+    <span class="key">"folder_to_region"</span>: {
+        <span class="key">"02 Projekte"</span>: <span class="val">0</span>,
+        <span class="key">"05 Referenzen"</span>: <span class="val">2</span>,
+        <span class="key">"01 Lucas"</span>: <span class="val">3</span>,
+        <span class="key">"04 Sessions"</span>: <span class="val">3</span>,
+        <span class="key">"03 Agenten"</span>: <span class="val">6</span>,
+        <span class="key">"00 Index"</span>: <span class="val">8</span>
+    }
+}</code></pre>
+
+<div class="card warn">
+  <strong>Wichtig:</strong> <code>vault_path</code> muss auf den Root-Ordner deines Obsidian Vaults zeigen.
+  Alternativ per Environment Variable: <code>BRAIN_VAULT_PATH=...</code>
+</div>
+
+<h3>Alle Konfigurationsoptionen</h3>
+
+<table>
+  <tr><th>Option</th><th>Default</th><th>Beschreibung</th></tr>
+  <tr><td><code>vault_path</code></td><td><code>null</code></td><td>Pfad zum Obsidian Vault</td></tr>
+  <tr><td><code>model_name</code></td><td><code>paraphrase-multilingual-MiniLM-L12-v2</code></td><td>Sentence-Transformers Modell (384-dim)</td></tr>
+  <tr><td><code>auto_index</code></td><td><code>true</code></td><td>Watchdog Live-Sync aktivieren</td></tr>
+  <tr><td><code>index_on_startup</code></td><td><code>true</code></td><td>Vault beim Start indexieren</td></tr>
+  <tr><td><code>folder_to_region</code></td><td><code>{}</code></td><td>Ordner &rarr; Hirnregion Mapping</td></tr>
+  <tr><td><code>log_level</code></td><td><code>INFO</code></td><td>Log-Level</td></tr>
+</table>
+
+<h3>Environment Variables (ueberschreiben config.json)</h3>
+
+<table>
+  <tr><th>Variable</th><th>Ueberschreibt</th></tr>
+  <tr><td><code>BRAIN_VAULT_PATH</code></td><td><code>vault_path</code></td></tr>
+  <tr><td><code>BRAIN_DATA_DIR</code></td><td>Gesamtes Datenverzeichnis (default: <code>~/.neural-brain</code>)</td></tr>
+  <tr><td><code>BRAIN_MODEL_NAME</code></td><td><code>model_name</code></td></tr>
+  <tr><td><code>BRAIN_LOG_LEVEL</code></td><td><code>log_level</code></td></tr>
+</table>
+
+<h2><span class="step-num">4</span> Vault vorab indexieren (optional)</h2>
+
+<p>Der erste Start laedt das Embedding-Modell (~90MB) und indexiert alle Notes. Das kann 1-2 Minuten dauern. Du kannst den Index auch vorher bauen:</p>
+
+<pre><code><span class="comment"># Normaler Index-Aufbau (nur neue/geaenderte Notes)</span>
+python -m brain_mcp index
+
+<span class="comment"># Mit explizitem Vault-Pfad</span>
+python -m brain_mcp index --vault "C:\pfad\zum\vault"
+
+<span class="comment"># Kompletter Neuaufbau (alle Notes re-embedden)</span>
+python -m brain_mcp index --force</code></pre>
+
+<h2><span class="step-num">5</span> MCP Server in Claude registrieren</h2>
+
+<h3>Option A: Claude Code (CLI)</h3>
+
+<p>Bearbeite <code>~/.claude/.mcp.json</code>:</p>
+
+<pre><code>{
+  <span class="key">"mcpServers"</span>: {
+    <span class="key">"neural-brain"</span>: {
+      <span class="key">"command"</span>: <span class="string">"python"</span>,
+      <span class="key">"args"</span>: [<span class="string">"-m"</span>, <span class="string">"brain_mcp"</span>, <span class="string">"serve"</span>],
+      <span class="key">"env"</span>: {
+        <span class="key">"BRAIN_VAULT_PATH"</span>: <span class="string">"C:\\Users\\DEIN_USER\\pfad\\zum\\vault"</span>
+      }
+    }
+  }
+}</code></pre>
+
+<h3>Option B: Claude Desktop App</h3>
+
+<p>Bearbeite <code>%APPDATA%\Claude\claude_desktop_config.json</code> (Windows) oder <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (Mac):</p>
+
+<pre><code>{
+  <span class="key">"mcpServers"</span>: {
+    <span class="key">"neural-brain"</span>: {
+      <span class="key">"command"</span>: <span class="string">"python"</span>,
+      <span class="key">"args"</span>: [<span class="string">"-m"</span>, <span class="string">"brain_mcp"</span>, <span class="string">"serve"</span>],
+      <span class="key">"env"</span>: {
+        <span class="key">"BRAIN_VAULT_PATH"</span>: <span class="string">"C:\\Users\\DEIN_USER\\pfad\\zum\\vault"</span>
+      }
+    }
+  }
+}</code></pre>
+
+<div class="card success">
+  <strong>Tipp:</strong> Claude Code und Claude Desktop lesen verschiedene Config-Dateien. Trage den Server in beide ein, wenn du ihn ueberall nutzen willst.
+</div>
+
+<h2><span class="step-num">6</span> Starten &amp; Testen</h2>
+
+<pre><code><span class="comment"># Claude Code neu starten - der MCP wird automatisch geladen</span>
+claude
+
+<span class="comment"># Testen ob die Tools da sind:</span>
+<span class="comment"># Tippe in Claude Code:</span>
+brain_retrieve query="test"
+brain_recent days=7
+brain_regions action="list"</code></pre>
+
+<div class="card info">
+  <strong>Erster Start:</strong> Dauert 30-90 Sekunden weil das Embedding-Modell geladen und der Vault indexiert wird. Danach startet der Server in unter 5 Sekunden.
+</div>
+
+<h2><span class="step-num">7</span> Die 6 MCP Tools</h2>
+
+<div class="tool-grid">
+  <div class="tool-card">
+    <h4>brain_retrieve</h4>
+    <p>Semantische Suche ueber alle Notes. Findet per Bedeutung, nicht nur Keywords.</p>
+    <p><span class="tag">query</span> <span class="tag opt">region</span> <span class="tag opt">limit</span> <span class="tag opt">threshold</span></p>
+  </div>
+  <div class="tool-card">
+    <h4>brain_context</h4>
+    <p>Kontextrelevante Notes fuer aktuelle Arbeit. Kombiniert Dateinaehe + Semantik.</p>
+    <p><span class="tag opt">file_paths</span> <span class="tag opt">task_description</span> <span class="tag opt">depth</span></p>
+  </div>
+  <div class="tool-card">
+    <h4>brain_store</h4>
+    <p>Note erstellen oder updaten im Vault. Wird sofort indexiert.</p>
+    <p><span class="tag">title</span> <span class="tag">content</span> <span class="tag opt">region</span> <span class="tag opt">tags</span></p>
+  </div>
+  <div class="tool-card">
+    <h4>brain_related</h4>
+    <p>Verwandte Notes finden per Semantik + Backlinks.</p>
+    <p><span class="tag opt">title</span> <span class="tag opt">path</span> <span class="tag opt">limit</span></p>
+  </div>
+  <div class="tool-card">
+    <h4>brain_recent</h4>
+    <p>Kuerzlich geaenderte Notes. Activity Feed fuer den Vault.</p>
+    <p><span class="tag opt">days</span> <span class="tag opt">region</span> <span class="tag opt">limit</span></p>
+  </div>
+  <div class="tool-card">
+    <h4>brain_regions</h4>
+    <p>Hirnregionen auflisten, beschreiben oder anpassen.</p>
+    <p><span class="tag">action</span> <span class="tag opt">region</span> <span class="tag opt">description</span></p>
+  </div>
+</div>
+
+<h2><span class="step-num">8</span> Hirnregionen &amp; Tags</h2>
+
+<p>Notes werden ueber <code>#brain/region-name</code> Tags einer Hirnregion zugeordnet. Fallback: Ordner-Mapping aus <code>folder_to_region</code>.</p>
+
+<table>
+  <tr><th>Region</th><th>Idx</th><th>Tag</th><th>Funktion</th></tr>
+  <tr><td style="color:#3498DB">Praefrontaler Cortex</td><td>0</td><td><code>#brain/praefrontaler-cortex</code></td><td>Architektur, Planung</td></tr>
+  <tr><td style="color:#E74C3C">Motorischer Cortex</td><td>1</td><td><code>#brain/motorischer-cortex</code></td><td>API Write, Aktionen</td></tr>
+  <tr><td style="color:#2ECC71">Sensorischer Cortex</td><td>2</td><td><code>#brain/sensorischer-cortex</code></td><td>Datenaufnahme, Input</td></tr>
+  <tr><td style="color:#F39C12">Hippocampus</td><td>3</td><td><code>#brain/hippocampus</code></td><td>Gedaechtnis, Sessions</td></tr>
+  <tr><td style="color:#9B59B6">Kleinhirn</td><td>4</td><td><code>#brain/kleinhirn</code></td><td>Praezisions-Algorithmen</td></tr>
+  <tr><td style="color:#1ABC9C">Nucleus Accumbens</td><td>5</td><td><code>#brain/nucleus-accumbens</code></td><td>Subscriptions, Belohnung</td></tr>
+  <tr><td style="color:#E67E22">Broca-Areal</td><td>6</td><td><code>#brain/broca-areal</code></td><td>KI, Prompts, Sprache</td></tr>
+  <tr><td style="color:#8E44AD">Visueller Cortex</td><td>7</td><td><code>#brain/visueller-cortex</code></td><td>UI, Design</td></tr>
+  <tr><td style="color:#16A085">Thalamus</td><td>8</td><td><code>#brain/thalamus</code></td><td>Index, Daten-Relay</td></tr>
+  <tr><td style="color:#95A5A6">Stammhirn</td><td>9</td><td><code>#brain/stammhirn</code></td><td>Config, Infrastruktur</td></tr>
+  <tr><td style="color:#D35400">Basalganglien</td><td>10</td><td><code>#brain/basalganglien</code></td><td>Pipelines, ETL</td></tr>
+  <tr><td style="color:#C0392B">Amygdala</td><td>11</td><td><code>#brain/amygdala</code></td><td>Auth, Team, Soziales</td></tr>
+</table>
+
+<h2><span class="step-num">9</span> Daten &amp; Dateien</h2>
+
+<table>
+  <tr><th>Pfad</th><th>Inhalt</th></tr>
+  <tr><td><code>~/.neural-brain/config.json</code></td><td>Konfiguration</td></tr>
+  <tr><td><code>~/.neural-brain/brain.db</code></td><td>SQLite Datenbank (Notes, Edges, Regions, FTS5)</td></tr>
+  <tr><td><code>~/.neural-brain/index.faiss</code></td><td>FAISS Vektor-Index (384-dim)</td></tr>
+</table>
+
+<div class="card warn">
+  <strong>Backup:</strong> Bei Datenverlust einfach <code>python -m brain_mcp index --force</code> ausfuehren.
+  Der gesamte Index wird aus dem Vault neu aufgebaut.
+</div>
+
+<h2><span class="step-num">10</span> Troubleshooting</h2>
+
+<table>
+  <tr><th>Problem</th><th>Loesung</th></tr>
+  <tr><td>MCP Server nicht sichtbar in Claude</td><td>Claude Code neu starten. <code>.mcp.json</code> pruefen.</td></tr>
+  <tr><td>Keine Suchergebnisse</td><td><code>python -m brain_mcp index</code> ausfuehren</td></tr>
+  <tr><td>Embedding-Model Download haengt</td><td>Internetverbindung pruefen. Model: ~90MB</td></tr>
+  <tr><td>Vault nicht gefunden</td><td><code>BRAIN_VAULT_PATH</code> oder <code>config.json vault_path</code> pruefen</td></tr>
+  <tr><td>Watcher reagiert nicht</td><td><code>"auto_index": true</code> in config.json setzen</td></tr>
+  <tr><td>Tests laufen lassen</td><td><code>pytest tests/ -v</code></td></tr>
+</table>
+
+<footer>
+  Neural Brain MCP Server v0.1.0 &mdash; Python 3.11+ &mdash; FAISS + SQLite + FTS5 + sentence-transformers<br>
+  Gebaut fuer Claude Code &amp; Claude Desktop
+</footer>
+
+</body>
+</html>

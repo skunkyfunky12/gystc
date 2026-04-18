@@ -20,8 +20,11 @@ def assign_initial_positions(nodes):
     rng = np.random.default_rng(42)
     positions = np.zeros((len(nodes), 3), dtype=np.float32)
     for i, node in enumerate(nodes):
-        community = node.get("community", 0)
-        region_idx = COMMUNITY_TO_REGION.get(community, 9)
+        if "region_idx" in node:
+            region_idx = node["region_idx"]
+        else:
+            community = node.get("community", 0)
+            region_idx = COMMUNITY_TO_REGION.get(community, 9)
         center = np.array(REGIONS[region_idx]["position"], dtype=np.float32)
         scatter = rng.normal(0, 15.0, size=3).astype(np.float32)
         positions[i] = center + scatter
