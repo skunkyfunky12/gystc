@@ -39,16 +39,17 @@ def handle_brain_context(
             neighbor_ids = db.get_neighbor_ids(note["id"], depth=depth)
             # REVIEW FIX: Cap max neighbors from BFS
             neighbor_list = list(neighbor_ids)[:MAX_BFS_NEIGHBORS]
-            for nid in neighbor_list:
+            # Batch fetch all neighbors in one query instead of N+1
+            neighbors = db.get_notes_by_ids(neighbor_list)
+            for neighbor in neighbors:
+                nid = neighbor["id"]
                 if nid not in scored:
-                    neighbor = db.get_note_by_id(nid)
-                    if neighbor:
-                        scored[nid] = {
-                            "note": neighbor,
-                            "graph_score": 1.0,
-                            "semantic_score": 0.0,
-                            "reason": f"backlink from {note['title']} ({depth} hop)",
-                        }
+                    scored[nid] = {
+                        "note": neighbor,
+                        "graph_score": 1.0,
+                        "semantic_score": 0.0,
+                        "reason": f"backlink from {note['title']} ({depth} hop)",
+                    }
 
     if task_description and vectors.size > 0:
         query_vec = embedder.embed([task_description[:1000]])

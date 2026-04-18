@@ -93,6 +93,15 @@ class BrainDB:
             self._conn.execute("UPDATE notes SET region_idx = ? WHERE id = ?", (region_idx, note_id))
             self._conn.commit()
 
+    def get_notes_by_ids(self, note_ids: list[int]) -> list[sqlite3.Row]:
+        if not note_ids:
+            return []
+        placeholders = ",".join("?" for _ in note_ids)
+        with self._lock:
+            return self._conn.execute(
+                f"SELECT * FROM notes WHERE id IN ({placeholders})", tuple(note_ids)
+            ).fetchall()
+
     def get_notes_by_faiss_indices(self, indices: list[int]) -> list[sqlite3.Row]:
         if not indices:
             return []
