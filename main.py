@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 from PyQt6.QtWidgets import QApplication, QMainWindow
+from PyQt6.QtGui import QIcon
 
 from data.loader import load_graph
 from data.vault_loader import load_vault
@@ -70,6 +71,9 @@ def main():
     print("Physics converged")
 
     app = QApplication(sys.argv)
+    icon_path = Path(__file__).parent / "assets" / "neural-brain-icon.ico"
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
 
     web_widget = BrainWebWidget(nodes, edges, positions)
 

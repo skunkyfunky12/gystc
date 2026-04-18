@@ -241,6 +241,59 @@ def brain_reindex(force: bool = False) -> dict:
         result["warning"] = f"Index not persisted to disk: {save_warning}"
     return result
 
+@mcp.tool()
+def brain_reclassify(dry_run: bool = True) -> dict:
+    """Re-classify notes stuck in Stammhirn (region 9) using the auto-classifier.
+
+    Updates both the DB region_idx AND the #brain/ tag in the .md file so
+    changes survive reindexing.
+
+    Args:
+        dry_run: If true, only show what would change without applying (default: true)
+    """
+    import re as _re
+    from brain_mcp.tools.classifier import classify_region
+    from brain_mcp.tools.recent import REGION_NAMES
+    from brain_mcp.indexer.scanner import REGION_TAG_TO_IDX
+
+    _IDX_TO_SLUG = {idx: slug for slug, idx in REGION_TAG_TO_IDX.items()}
+    _BRAIN_TAG_RE = _re.compile(r"#brain/[\w-]+")
+
+    state: BrainState = mcp.get_context().request_context.lifespan_context
+    stammhirn_notes = [n for n in state.db.get_all_notes() if n["region_idx"] == 9]
+    moves = []
+    file_errors = []
+    for note in stammhirn_notes:
+        new_idx = classify_region(note["title"], (note["content"] or ""), path=note["path"])
+        if new_idx != 9:
+            moves.append({"title": note["title"], "path": note["path"],
+                          "from": REGION_NAMES[9], "to": REGION_NAMES[new_idx], "to_idx": new_idx})
+            if not dry_run:
+                state.db.update_note_region(note["id"], new_idx)
+                # Also update the #brain/ tag in the .md file on disk
+                file_path = state.config.vault_path / note["path"]
+                new_slug = _IDX_TO_SLUG.get(new_idx, "stammhirn")
+                try:
+                    text = file_path.read_text(encoding="utf-8", errors="replace")
+                    if _BRAIN_TAG_RE.search(text):
+                        text = _BRAIN_TAG_RE.sub(f"#brain/{new_slug}", text)
+                    else:
+                        text = text.rstrip() + f"\n\n#brain/{new_slug}\n"
+                    file_path.write_text(text, encoding="utf-8")
+                except OSError as e:
+                    file_errors.append(f"{note['path']}: {e}")
+    result = {
+        "dry_run": dry_run,
+        "stammhirn_total": len(stammhirn_notes),
+        "reclassified": len(moves),
+        "unchanged": len(stammhirn_notes) - len(moves),
+        "moves": moves[:50],
+        "moves_truncated": len(moves) > 50,
+    }
+    if file_errors:
+        result["file_errors"] = file_errors[:10]
+    return result
+
 # ---------------------------------------------------------------------------
 # MCP Resources
 # ---------------------------------------------------------------------------

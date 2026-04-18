@@ -21,18 +21,18 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 // Deep/central regions (thalamus, basal, nucleus, amygdala) stay near core;
 // cortical regions pushed further out along their lobes.
 const REGIONS = [
-  { key: 'prefrontal', name: 'Präfrontaler Cortex',  subtitle: 'Entscheidungen · Planung', color: '#4DA3FF', pos: [  0,  36, -58] },
-  { key: 'motor',      name: 'Motorischer Cortex',   subtitle: 'Code · Commits · Actions', color: '#22C55E', pos: [-30,  46, -26] },
-  { key: 'sensory',    name: 'Sensorischer Cortex',  subtitle: 'Dateien · Inputs · Logs', color: '#5EE9F0', pos: [ 30,  46, -10] },
-  { key: 'hippo',      name: 'Hippocampus',          subtitle: 'Langzeitgedächtnis · Projekte', color: '#9D7CFF', pos: [-36,   0,  18] },
-  { key: 'cerebellum', name: 'Kleinhirn',            subtitle: 'Routinen · Skripte · Workflows', color: '#EC4899', pos: [ 30, -14,  48] },
-  { key: 'nucleus',    name: 'Nucleus Accumbens',    subtitle: 'Ziele · Prioritäten · Wins', color: '#FACC15', pos: [  6,   4, -20] },
-  { key: 'broca',      name: 'Broca-Areal',          subtitle: 'Sprache · Prompts · Schreiben', color: '#F97316', pos: [-34,  20, -38] },
-  { key: 'visual',     name: 'Visueller Cortex',     subtitle: 'Design · UI · Diagramme', color: '#A855F7', pos: [ 24,  12,  48] },
-  { key: 'thalamus',   name: 'Thalamus',             subtitle: 'Context-Router · MCP · API', color: '#3FD4E8', pos: [  0,  10,   4] },
-  { key: 'stem',       name: 'Stammhirn',            subtitle: 'System · Config · Infra', color: '#94A3B8', pos: [  0, -40,  28] },
-  { key: 'basal',      name: 'Basalganglien',        subtitle: 'Habits · Tools · Patterns', color: '#F43F5E', pos: [-14,  14,  14] },
-  { key: 'amygdala',   name: 'Amygdala',             subtitle: 'Alerts · Fehler · Risiken', color: '#FB923C', pos: [-18,  -8, -24] },
+  { key: 'prefrontal', name: 'Präfrontaler Cortex',  subtitle: 'Entscheidungen · Planung', color: '#4DA3FF', pos: [   0, 275, -362] },
+  { key: 'motor',      name: 'Motorischer Cortex',   subtitle: 'Code · Commits · Actions', color: '#22C55E', pos: [-137, 312, -175] },
+  { key: 'sensory',    name: 'Sensorischer Cortex',  subtitle: 'Dateien · Inputs · Logs', color: '#5EE9F0', pos: [ 137, 312,  -87] },
+  { key: 'hippo',      name: 'Hippocampus',          subtitle: 'Langzeitgedächtnis · Projekte', color: '#9D7CFF', pos: [-225,   0,   87] },
+  { key: 'cerebellum', name: 'Kleinhirn',            subtitle: 'Routinen · Skripte · Workflows', color: '#EC4899', pos: [ 187,-100,  312] },
+  { key: 'nucleus',    name: 'Nucleus Accumbens',    subtitle: 'Ziele · Prioritäten · Wins', color: '#FACC15', pos: [  50, 150, -200] },
+  { key: 'broca',      name: 'Broca-Areal',          subtitle: 'Sprache · Prompts · Schreiben', color: '#F97316', pos: [-175, 137, -225] },
+  { key: 'visual',     name: 'Visueller Cortex',     subtitle: 'Design · UI · Diagramme', color: '#A855F7', pos: [ 137,  87,  312] },
+  { key: 'thalamus',   name: 'Thalamus',             subtitle: 'Context-Router · MCP · API', color: '#3FD4E8', pos: [   0, 175,   50] },
+  { key: 'stem',       name: 'Stammhirn',            subtitle: 'System · Config · Infra', color: '#94A3B8', pos: [   0,-275,  225] },
+  { key: 'basal',      name: 'Basalganglien',        subtitle: 'Habits · Tools · Patterns', color: '#F43F5E', pos: [-150, 100,  -80] },
+  { key: 'amygdala',   name: 'Amygdala',             subtitle: 'Alerts · Fehler · Risiken', color: '#FB923C', pos: [-100, -62, -137] },
 ];
 
 const PALETTES = {
@@ -351,7 +351,7 @@ scene.background = null;
 scene.fog = new THREE.FogExp2(0x05070B, 0.005);
 
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 4000);
-camera.position.set(0, 18, 160);
+camera.position.set(0, 50, 500);
 
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
@@ -361,7 +361,46 @@ controls.zoomSpeed = 0.8;
 controls.autoRotate = true;
 controls.autoRotateSpeed = 0.12;
 controls.minDistance = 50;
-controls.maxDistance = 420;
+controls.maxDistance = 1200;
+
+/* ---------- WASD FLY CONTROLS ---------- */
+
+const _flyKeys = { w: false, a: false, s: false, d: false, q: false, e: false, shift: false };
+const FLY_SPEED = 3.0;
+const FLY_SPEED_FAST = 8.0;
+
+document.addEventListener('keydown', (ev) => {
+  const k = ev.key.toLowerCase();
+  if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+  if (k in _flyKeys) _flyKeys[k] = true;
+});
+document.addEventListener('keyup', (ev) => {
+  const k = ev.key.toLowerCase();
+  if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+  if (k in _flyKeys) _flyKeys[k] = false;
+});
+
+function updateFlyControls() {
+  const speed = _flyKeys.shift ? FLY_SPEED_FAST : FLY_SPEED;
+  const forward = new THREE.Vector3();
+  camera.getWorldDirection(forward);
+  const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
+  const up = new THREE.Vector3(0, 1, 0);
+
+  const move = new THREE.Vector3();
+  if (_flyKeys.w) move.add(forward);
+  if (_flyKeys.s) move.sub(forward);
+  if (_flyKeys.d) move.add(right);
+  if (_flyKeys.a) move.sub(right);
+  if (_flyKeys.e) move.add(up);
+  if (_flyKeys.q) move.sub(up);
+
+  if (move.lengthSq() > 0) {
+    move.normalize().multiplyScalar(speed);
+    camera.position.add(move);
+    controls.target.add(move);
+  }
+}
 
 /* ---------- STARS ---------- */
 
@@ -895,13 +934,14 @@ function toggleRegion(key) {
   }
   nodeGeometry.attributes.alpha.needsUpdate = true;
 
-  // Edge alpha
+  // Edge alpha — must write ALL vertices per edge (vertsPerEdge), not just 2
   graph.edges.forEach((e, i) => {
     const na = graph.nodes[e[0]], nb = graph.nodes[e[1]];
     const active = !state.activeRegion || (na.region === state.activeRegion && nb.region === state.activeRegion);
     const base = na.region === nb.region ? 0.32 : 0.08;
     const a = active ? base : 0.01;
-    edgeAlphas[i*2] = a; edgeAlphas[i*2+1] = a;
+    const off = i * vertsPerEdge;
+    for (let s = 0; s < vertsPerEdge; s++) edgeAlphas[off + s] = a;
   });
   edgeGeom.attributes.alpha.needsUpdate = true;
 
@@ -1373,8 +1413,17 @@ const regionLabels = REGIONS.map((r, i) => {
   return el;
 });
 
+let _cachedRect = null;
+let _labelFrame = 0;
+function _updateCachedRect() { _cachedRect = canvas.getBoundingClientRect(); }
+window.addEventListener('resize', _updateCachedRect);
+_updateCachedRect();
+
 function updateRegionLabels() {
-  const rect = canvas.getBoundingClientRect();
+  _labelFrame++;
+  if (_labelFrame % 3 !== 0) return;
+  if (!_cachedRect) _updateCachedRect();
+  const rect = _cachedRect;
   const vec = new THREE.Vector3();
   REGIONS.forEach((r, i) => {
     vec.set(r.pos[0], r.pos[1], r.pos[2]).project(camera);
@@ -1812,8 +1861,9 @@ tlSlider.addEventListener('input', () => {
   for (let ei = 0; ei < graph.edges.length; ei++) {
     const [a, b] = graph.edges[ei];
     const vis = nodeVisible[a] && nodeVisible[b];
-    edgeAlphas[ei * 2] = vis ? 0.35 : 0.0;
-    edgeAlphas[ei * 2 + 1] = vis ? 0.35 : 0.0;
+    const alpha = vis ? 0.35 : 0.0;
+    const off = ei * vertsPerEdge;
+    for (let s = 0; s < vertsPerEdge; s++) edgeAlphas[off + s] = alpha;
   }
   edgeGeom.attributes.alpha.needsUpdate = true;
   if (k >= 0.999) {
@@ -1899,6 +1949,7 @@ function animate() {
   requestAnimationFrame(animate);
   const dt = clock.getDelta();
   const t = clock.elapsedTime;
+  updateFlyControls();
   controls.update();
 
   nodeMaterial.uniforms.u_time.value = t;

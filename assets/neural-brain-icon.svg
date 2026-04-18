@@ -1,0 +1,24 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg-c" cx="50%" cy="40%" r="80%">
+      <stop offset="0%" stop-color="#0F1A26"/>
+      <stop offset="100%" stop-color="#0A0E15"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg-c)"/>
+  <g transform="translate(256 256)" fill="none" stroke="#5EE9F0" stroke-width="10" stroke-linecap="round">
+    <!-- left hemisphere -->
+    <path d="M -20 -115 C -110 -115 -150 -45 -130 15 C -150 55 -110 115 -20 115" opacity="0.9"/>
+    <path d="M -40 -75 C -90 -75 -110 -25 -90 5" opacity="0.5"/>
+    <path d="M -40 75 C -90 75 -110 25 -90 -5" opacity="0.5"/>
+    <!-- right hemisphere -->
+    <path d="M 20 -115 C 110 -115 150 -45 130 15 C 150 55 110 115 20 115" opacity="0.9"/>
+    <path d="M 40 -75 C 90 -75 110 -25 90 5" opacity="0.5"/>
+    <path d="M 40 75 C 90 75 110 25 90 -5" opacity="0.5"/>
+    <!-- central stem -->
+    <line x1="0" y1="-105" x2="0" y2="105" opacity="0.3" stroke-dasharray="4 8"/>
+    <!-- central pulse -->
+    <circle r="26" fill="#5EE9F0" stroke="none" opacity="0.2"/>
+    <circle r="14" fill="#5EE9F0" stroke="none"/>
+  </g>
+</svg>

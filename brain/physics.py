@@ -50,11 +50,11 @@ class PhysicsSimulation:
         region_centers: np.ndarray,
         node_regions: np.ndarray,
         *,
-        center_strength: float = 0.02,
-        repel_strength: float = 5.0,
-        link_strength: float = 0.8,
-        link_distance: float = 30.0,
-        region_gravity: float = 0.15,
+        center_strength: float = 0.005,
+        repel_strength: float = 8.0,
+        link_strength: float = 0.6,
+        link_distance: float = 60.0,
+        region_gravity: float = 0.10,
         damping: float = 0.95,
     ) -> None:
         self._positions = np.array(positions, dtype=np.float64)   # work in f64 for stability
@@ -99,7 +99,7 @@ class PhysicsSimulation:
         # 3. Node repulsion via cKDTree (inverse-square, radius = 80)
         if self.repel_strength != 0.0:
             tree = cKDTree(pos)
-            pairs = tree.query_pairs(r=80.0, output_type="ndarray")   # (M, 2) int
+            pairs = tree.query_pairs(r=160.0, output_type="ndarray")  # (M, 2) int
             if len(pairs):
                 i_idx = pairs[:, 0]
                 j_idx = pairs[:, 1]
