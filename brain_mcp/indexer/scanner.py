@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -36,13 +37,17 @@ def parse_note_file(file_path: Path, vault_root: Path, folder_to_region: dict[st
 
     try:
         text = file_path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    except OSError as e:
+        print(f"WARNING: Cannot read {file_path}: {e}", file=sys.stderr)
         return None
 
     # --- region detection ---
     brain_tags = _BRAIN_TAG_RE.findall(text)
     if brain_tags:
-        region_idx = REGION_TAG_TO_IDX.get(brain_tags[0], 9)
+        slug = brain_tags[0]
+        if slug not in REGION_TAG_TO_IDX:
+            print(f"WARNING: Unrecognized brain tag '#brain/{slug}' in {file_path.name}, defaulting to Stammhirn", file=sys.stderr)
+        region_idx = REGION_TAG_TO_IDX.get(slug, 9)
     else:
         top_folder = rel.parts[0] if len(rel.parts) > 1 else ""
         region_idx = folder_to_region.get(top_folder, 9)

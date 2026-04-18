@@ -2,11 +2,21 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 
 from brain_mcp.indexer.embedder import EmbeddingBackend
 from brain_mcp.indexer.vector_store import VectorStore
 from brain_mcp.storage.database import BrainDB
 from brain_mcp.tools.recent import REGION_NAMES, REGION_NAME_TO_IDX, resolve_region_idx
+
+
+def _safe_parse_tags(tags_str: str | None) -> list[str]:
+    if not tags_str:
+        return []
+    try:
+        return json.loads(tags_str)
+    except (json.JSONDecodeError, TypeError):
+        return []
 
 
 def _fts_snippet(db: BrainDB, note_id: int, query: str) -> str | None:
@@ -24,7 +34,7 @@ def _fts_snippet(db: BrainDB, note_id: int, query: str) -> str | None:
         ).fetchone()
         if row and row["snip"]:
             return row["snip"]
-    except Exception:
+    except sqlite3.OperationalError:
         pass
     return None
 
@@ -83,7 +93,7 @@ def handle_brain_retrieve(
             "region_idx": note["region_idx"],
             "similarity": round(score, 4),
             "snippet": snippet,
-            "tags": json.loads(note["tags"]) if note["tags"] else [],
+            "tags": _safe_parse_tags(note["tags"]),
             "created": note["created_at"],
             "modified": note["modified_at"],
             "word_count": note["word_count"],
