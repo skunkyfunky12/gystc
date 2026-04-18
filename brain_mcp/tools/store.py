@@ -6,11 +6,16 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+from typing import TYPE_CHECKING
+
 from brain_mcp.indexer.embedder import EmbeddingBackend
 from brain_mcp.indexer.scanner import REGION_TAG_TO_IDX, compute_content_hash
 from brain_mcp.indexer.vector_store import VectorStore
 from brain_mcp.storage.database import BrainDB
-from brain_mcp.tools.recent import REGION_NAMES, REGION_NAME_TO_IDX
+from brain_mcp.tools.recent import REGION_NAMES, REGION_NAME_TO_IDX, resolve_region_idx
+
+if TYPE_CHECKING:
+    from brain_mcp.indexer.watcher import BrainWatcher
 
 _BAD_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _TRAVERSAL = re.compile(r'\.\.[\\/]?')
@@ -42,10 +47,14 @@ def handle_brain_store(
     region_idx: int | None = None,
     tags: list[str] | None = None,
     folder: str = "",
-    pending_writes: dict[str, float] | None = None,
+    watcher: BrainWatcher | None = None,
 ) -> dict:
     if len(content) > MAX_CONTENT_SIZE:
         return {"error": f"Content exceeds {MAX_CONTENT_SIZE} byte limit"}
+
+    # FIX 11: Validate region_idx range
+    if region_idx is not None and not (0 <= region_idx < 12):
+        return {"error": f"region_idx must be 0-11, got {region_idx}"}
 
     safe_title = sanitize_title(title)
     if not safe_title:
@@ -72,14 +81,14 @@ def handle_brain_store(
     except (ValueError, OSError):
         return {"error": "Invalid path"}
 
-    # REVIEW FIX: Return error for invalid region instead of silently defaulting
-    if region and region not in REGION_NAME_TO_IDX:
+    # Return error for invalid region instead of silently defaulting
+    if region and resolve_region_idx(region) is None:
         return {"error": f"Unknown region: {region}. Use brain_regions(action='list')."}
 
     if region_idx is not None and 0 <= region_idx < 12:
         r_idx = region_idx
     elif region:
-        r_idx = REGION_NAME_TO_IDX[region]
+        r_idx = resolve_region_idx(region)  # type: ignore[assignment]
     else:
         r_idx = 9  # Stammhirn default
 
@@ -92,17 +101,14 @@ def handle_brain_store(
     target_dir.mkdir(parents=True, exist_ok=True)
     tmp_file = target.with_suffix(".md.tmp")
 
-    # REVIEW FIX: Register pending_writes BEFORE os.replace to prevent watcher race
-    if pending_writes is not None:
-        pending_writes[str(resolved)] = datetime.now(timezone.utc).timestamp()
+    # Register pending write BEFORE os.replace to prevent watcher race
+    if watcher is not None:
+        watcher.add_pending_write(str(resolved))
 
     try:
         tmp_file.write_text(content, encoding="utf-8")
         os.replace(str(tmp_file), str(target))
     except OSError as e:
-        # Undo pending_writes registration on failure
-        if pending_writes is not None:
-            pending_writes.pop(str(resolved), None)
         return {"error": f"Write failed: {e}"}
 
     rel_path = str(target.relative_to(vault_root)).replace("\\", "/")
@@ -111,6 +117,10 @@ def handle_brain_store(
     now = datetime.now(timezone.utc)
     content_hash = compute_content_hash(content)
     word_count = len(content.split())
+    # Read old FAISS index before upsert to remove ghost vector
+    old_row = db.get_note_by_path(rel_path)
+    old_faiss_idx = old_row["faiss_idx"] if old_row and old_row["faiss_idx"] is not None else None
+
     note_id = db.upsert_note(
         path=rel_path, title=safe_title, content=content, content_hash=content_hash,
         region_idx=r_idx, tags=tags, word_count=word_count,
@@ -118,15 +128,23 @@ def handle_brain_store(
         modified_at=now.isoformat(),
     )
 
-    vec = embedder.embed([content])
-    faiss_ids = vectors.add(vec)
-    db.set_faiss_idx(note_id, faiss_ids[0])
+    # FIX 10: Handle embedding failure gracefully
+    indexed = False
+    try:
+        vec = embedder.embed([content])
+        if old_faiss_idx is not None:
+            vectors.remove([old_faiss_idx])
+        faiss_ids = vectors.add(vec)
+        db.set_faiss_idx(note_id, faiss_ids[0])
+        indexed = True
+    except Exception:
+        pass
 
     result = {
         "path": rel_path,
         "region": REGION_NAMES[r_idx],
         "region_idx": r_idx,
-        "indexed": True,
+        "indexed": indexed,
         "word_count": word_count,
     }
 

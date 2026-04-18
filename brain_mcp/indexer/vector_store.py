@@ -82,17 +82,16 @@ class VectorStore:
         Returns ``(scores, ids)`` where each is a list-of-lists (one
         inner list per query vector).  Empty index returns empty lists.
         """
-        if self.size == 0:
-            n_queries = query.shape[0]
-            return [[] for _ in range(n_queries)], [[] for _ in range(n_queries)]
-
         query = np.ascontiguousarray(query, dtype=np.float32)
         faiss.normalize_L2(query)
 
-        # Clamp k to available vectors
-        effective_k = min(k, self.size)
-
         with self._lock:
+            if self._index.ntotal == 0:
+                n_queries = query.shape[0]
+                return [[] for _ in range(n_queries)], [[] for _ in range(n_queries)]
+
+            # Clamp k to available vectors
+            effective_k = min(k, self._index.ntotal)
             scores_raw, ids_raw = self._index.search(query, effective_k)
 
         # Convert to Python lists, filtering out sentinel -1 entries

@@ -1,4 +1,5 @@
 # tests/conftest.py
+import hashlib
 import json
 from pathlib import Path
 import numpy as np
@@ -45,7 +46,8 @@ class MockEmbedder:
     def embed(self, texts: list[str]) -> np.ndarray:
         vectors = []
         for text in texts:
-            rng = np.random.RandomState(hash(text) % (2**31))
+            seed = int(hashlib.md5(text.encode()).hexdigest(), 16) % (2**31)
+            rng = np.random.RandomState(seed)
             vec = rng.randn(384).astype(np.float32)
             vec /= np.linalg.norm(vec)
             vectors.append(vec)

@@ -1,6 +1,5 @@
 import argparse
 import sys
-import time
 
 
 def cmd_index(args):
@@ -9,7 +8,7 @@ def cmd_index(args):
     from brain_mcp.storage.database import BrainDB
     from brain_mcp.indexer.vector_store import VectorStore
     from brain_mcp.indexer.embedder import SentenceTransformerBackend
-    from brain_mcp.indexer.scanner import scan_vault
+    from brain_mcp.indexer.pipeline import index_vault
 
     config = load_config()
     if args.vault:
@@ -20,57 +19,19 @@ def cmd_index(args):
 
     config.data_dir.mkdir(parents=True, exist_ok=True)
     db = BrainDB(config.db_path)
-    vectors = VectorStore(dimension=384) if args.force else VectorStore.load(config.index_path, dimension=384)
     embedder = SentenceTransformerBackend(config.model_name)
+    vectors = VectorStore(dimension=embedder.dimension) if args.force else VectorStore.load(config.index_path, dimension=embedder.dimension)
 
     print(f"Scanning vault: {config.vault_path}", file=sys.stderr)
-    notes = scan_vault(config.vault_path, config.folder_to_region)
-    print(f"Found {len(notes)} notes.", file=sys.stderr)
-
-    title_to_id: dict[str, int] = {}
-    to_embed: list[tuple[int, str]] = []
-    for note in notes:
-        if not args.force:
-            existing_hash = db.get_content_hash(note["path"])
-            if existing_hash == note["content_hash"]:
-                row = db.get_note_by_path(note["path"])
-                if row:
-                    title_to_id[note["title"]] = row["id"]
-                continue
-        note_id = db.upsert_note(
-            path=note["path"], title=note["title"], content=note["content"],
-            content_hash=note["content_hash"], region_idx=note["region_idx"],
-            tags=note["tags"], word_count=note["word_count"],
-            created_at=note["created_at"], modified_at=note["modified_at"],
-        )
-        title_to_id[note["title"]] = note_id
-        to_embed.append((note_id, note["content"]))
-
-    if to_embed:
-        print(f"Embedding {len(to_embed)} notes...", file=sys.stderr)
-        t0 = time.time()
-        texts = [t for _, t in to_embed]
-        vecs = embedder.embed(texts)
-        faiss_ids = vectors.add(vecs)
-        for (note_id, _), fid in zip(to_embed, faiss_ids):
-            db.set_faiss_idx(note_id, fid)
-        elapsed = time.time() - t0
-        print(f"Embedded in {elapsed:.1f}s", file=sys.stderr)
-    else:
-        print("No new/changed notes to embed.", file=sys.stderr)
-
-    for note in notes:
-        src_id = title_to_id.get(note["title"])
-        if src_id is None:
-            continue
-        for bl_title in note.get("backlink_titles", []):
-            tgt_id = title_to_id.get(bl_title)
-            if tgt_id and src_id != tgt_id:
-                db.upsert_edge(src_id, tgt_id, link_text=bl_title)
-
-    vectors.save(config.index_path)
-    db.close()
-    print(f"Done. Index: {config.index_path} | DB: {config.db_path}", file=sys.stderr)
+    try:
+        count = index_vault(db, vectors, embedder, config.vault_path,
+                            config.folder_to_region, force=args.force)
+        if count == 0:
+            print("No new/changed notes to embed.", file=sys.stderr)
+        vectors.save(config.index_path)
+        print(f"Done. Index: {config.index_path} | DB: {config.db_path}", file=sys.stderr)
+    finally:
+        db.close()
 
 
 def cmd_serve(args):

@@ -24,7 +24,7 @@ def test_store_creates_file(tmp_path, mock_embedder):
         db, vectors, mock_embedder, vault,
         title="My Note", content="Hello world content", region="Hippocampus",
         tags=["#test"], folder="",
-        pending_writes={},
+        watcher=None,
     )
     assert result["path"] == "My Note.md"
     assert (vault / "My Note.md").exists()
@@ -41,7 +41,7 @@ def test_store_creates_subfolder(tmp_path, mock_embedder):
         db, vectors, mock_embedder, vault,
         title="Sub Note", content="In a folder", region=None,
         tags=[], folder="Projects",
-        pending_writes={},
+        watcher=None,
     )
     assert result["path"] == "Projects/Sub Note.md"
     assert (vault / "Projects" / "Sub Note.md").exists()
@@ -56,7 +56,7 @@ def test_store_indexes_note(tmp_path, mock_embedder):
     handle_brain_store(
         db, vectors, mock_embedder, vault,
         title="Indexed", content="Some searchable content", region=None,
-        tags=[], folder="", pending_writes={},
+        tags=[], folder="", watcher=None,
     )
     assert vectors.size == 1
     row = db.get_note_by_title("Indexed")
@@ -73,7 +73,7 @@ def test_store_adds_brain_tag(tmp_path, mock_embedder):
     handle_brain_store(
         db, vectors, mock_embedder, vault,
         title="Tagged", content="Content here", region="Hippocampus",
-        tags=[], folder="", pending_writes={},
+        tags=[], folder="", watcher=None,
     )
     text = (vault / "Tagged.md").read_text(encoding="utf-8")
     assert "#brain/hippocampus" in text
@@ -85,13 +85,15 @@ def test_store_sets_pending_write(tmp_path, mock_embedder):
     vault.mkdir()
     db = BrainDB(tmp_path / "test.db")
     vectors = VectorStore(dimension=384)
-    pending = {}
+    # Use a real BrainWatcher to test pending_writes integration
+    from brain_mcp.indexer.watcher import BrainWatcher
+    watcher = BrainWatcher(vault, lambda p, e: None)
     handle_brain_store(
         db, vectors, mock_embedder, vault,
         title="Pending", content="Content", region=None,
-        tags=[], folder="", pending_writes=pending,
+        tags=[], folder="", watcher=watcher,
     )
-    assert len(pending) == 1
+    assert len(watcher._pending_writes) == 1
     db.close()
 
 
@@ -104,7 +106,7 @@ def test_store_invalid_region_returns_error(tmp_path, mock_embedder):
     result = handle_brain_store(
         db, vectors, mock_embedder, vault,
         title="Bad Region", content="Content", region="Nonexistent",
-        tags=[], folder="", pending_writes={},
+        tags=[], folder="", watcher=None,
     )
     assert "error" in result
     db.close()
@@ -120,7 +122,7 @@ def test_store_strips_existing_brain_tag(tmp_path, mock_embedder):
         db, vectors, mock_embedder, vault,
         title="ReTag", content="Old content\n\n#brain/stammhirn\n",
         region="Hippocampus",
-        tags=[], folder="", pending_writes={},
+        tags=[], folder="", watcher=None,
     )
     text = (vault / "ReTag.md").read_text(encoding="utf-8")
     assert "#brain/hippocampus" in text
@@ -137,7 +139,7 @@ def test_store_sanitized_title_warning(tmp_path, mock_embedder):
     result = handle_brain_store(
         db, vectors, mock_embedder, vault,
         title="bad:title*here", content="Content",
-        region=None, tags=[], folder="", pending_writes={},
+        region=None, tags=[], folder="", watcher=None,
     )
     assert result.get("title_sanitized") is True
     db.close()
