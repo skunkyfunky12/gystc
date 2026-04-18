@@ -7,20 +7,23 @@ out vec4 FragColor;
 
 void main()
 {
-    // Distance from quad center
     float dist = length(v_uv);
-
-    // Discard pixels outside the circle
     if (dist > 1.0) discard;
 
-    // White-hot center core
-    float core = smoothstep(0.3, 0.0, dist);
+    // Layer 1: white-hot inner core
+    float core = smoothstep(0.2, 0.0, dist);
 
-    // Blend color with white at the center
-    vec3 col = mix(v_color, vec3(1.0), core);
+    // Layer 2: saturated color ring
+    float ring = smoothstep(0.55, 0.1, dist);
 
-    // Exponential alpha falloff
-    float alpha = exp(-dist * 2.5);
+    // Layer 3: wide outer halo (bioluminescence)
+    float halo = exp(-dist * 1.2);
+
+    // Combine: white core fading into color, then soft halo
+    vec3 col = mix(v_color * 1.4, vec3(1.0), core) * ring + v_color * halo * 0.3;
+
+    // Strong alpha with soft edge
+    float alpha = halo * 0.85;
 
     FragColor = vec4(col, alpha);
 }
