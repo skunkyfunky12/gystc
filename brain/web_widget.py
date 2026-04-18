@@ -2,19 +2,32 @@
 from __future__ import annotations
 
 import json
+import threading
+from functools import partial
+from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
 import numpy as np
 from PyQt6.QtCore import QUrl, pyqtSlot, QObject
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebChannel import QWebChannel
-from PyQt6.QtWebEngineCore import QWebEnginePage
+from PyQt6.QtWebEngineCore import QWebEngineScript
 
 from data.regions import COMMUNITY_TO_REGION, REGIONS
 
+_WEB_DIR = Path(__file__).parent / "web"
+
+
+def _start_local_server(directory: Path, port: int = 0) -> tuple[HTTPServer, int]:
+    handler = partial(SimpleHTTPRequestHandler, directory=str(directory))
+    server = HTTPServer(("127.0.0.1", port), handler)
+    actual_port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, actual_port
+
 
 class BrainBridge(QObject):
-    """Python object exposed to JavaScript via QWebChannel."""
 
     def __init__(self, nodes, on_node_clicked=None):
         super().__init__()
@@ -28,15 +41,6 @@ class BrainBridge(QObject):
 
 
 class BrainWebWidget(QWebEngineView):
-    """QWebEngineView that renders the Three.js brain prototype.
-
-    Parameters
-    ----------
-    nodes:     List of node dicts from graph.json.
-    edges:     List of (src, tgt) index pairs.
-    positions: (N, 3) float32 array of pre-computed positions.
-    parent:    Optional Qt parent widget.
-    """
 
     def __init__(self, nodes, edges, positions, parent=None):
         super().__init__(parent)
@@ -49,6 +53,8 @@ class BrainWebWidget(QWebEngineView):
         self._channel.registerObject("bridge", self._bridge)
 
         self._graph_json = self._build_graph_json()
+
+        self._server, self._port = _start_local_server(_WEB_DIR)
         self._setup_page()
 
     @property
@@ -76,16 +82,12 @@ class BrainWebWidget(QWebEngineView):
             })
 
         edges_data = [[int(s), int(t)] for s, t in self._edges]
-
         return json.dumps({"nodes": nodes_data, "edges": edges_data})
 
     def _setup_page(self):
         page = self.page()
         page.setWebChannel(self._channel)
 
-        html_path = Path(__file__).parent / "web" / "index.html"
-
-        # Inject data before page loads via a user script
         script_src = f"""
         window.__graphData = {self._graph_json};
         window.__onNodeClick = function(nodeId, title) {{
@@ -95,7 +97,6 @@ class BrainWebWidget(QWebEngineView):
         }};
         """
 
-        from PyQt6.QtWebEngineCore import QWebEngineScript
         script = QWebEngineScript()
         script.setName("graph-data-injection")
         script.setSourceCode(script_src)
@@ -103,7 +104,6 @@ class BrainWebWidget(QWebEngineView):
         script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         page.scripts().insert(script)
 
-        # Also inject QWebChannel JS
         webchannel_script = QWebEngineScript()
         webchannel_script.setName("qwebchannel")
         webchannel_script.setSourceCode("""
@@ -120,4 +120,4 @@ class BrainWebWidget(QWebEngineView):
         webchannel_script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         page.scripts().insert(webchannel_script)
 
-        self.setUrl(QUrl.fromLocalFile(str(html_path.resolve())))
+        self.setUrl(QUrl(f"http://127.0.0.1:{self._port}/index.html"))
