@@ -5,6 +5,8 @@ repaint loop driven by QTimer at ~60 fps.
 """
 from __future__ import annotations
 
+import time
+
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from OpenGL.GL import (
@@ -46,7 +48,7 @@ class BrainGLWidget(QOpenGLWidget):
         self._positions = positions
         self._nodes = nodes
 
-        self._time: float = 0.0
+        self._start_time: float = time.perf_counter()
         self._mouse_pressed: bool = False
         self._last_mouse_pos = None
         self._mouse_button = None
@@ -92,7 +94,6 @@ class BrainGLWidget(QOpenGLWidget):
         new_pos = self._physics.get_positions_f32()
         self._positions = new_pos
         self._scene.update_positions(new_pos)
-        self._time += 0.016
         self.update()
 
     def paintGL(self) -> None:
@@ -100,8 +101,9 @@ class BrainGLWidget(QOpenGLWidget):
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         view = self._camera.get_view_matrix()
         proj = self._camera.get_projection_matrix(self.width(), self.height())
+        t = time.perf_counter() - self._start_time
         try:
-            self._scene.render(view, proj, self._time)
+            self._scene.render(view, proj, t)
         except Exception as e:
             if not getattr(self, '_render_error_logged', False):
                 import sys

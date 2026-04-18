@@ -6,5 +6,7 @@ out vec4 FragColor;
 
 void main()
 {
-    FragColor = v_color;
+    // Slight boost to edge visibility
+    vec3 col = v_color.rgb * 1.3;
+    FragColor = vec4(col, v_color.a * 1.5);
 }
