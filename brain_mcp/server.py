@@ -102,11 +102,14 @@ async def brain_lifespan(server: FastMCP) -> AsyncIterator[BrainState]:
     vault_exists = config.vault_path is not None and config.vault_path.is_dir()
     if vault_exists and config.index_on_startup:
         model_thread.join(timeout=120)
-        try:
-            _index_vault(state)
-        except Exception as exc:
-            print(f"ERROR: Startup indexing failed: {exc}", file=sys.stderr)
-            print("Server will start without pre-indexed vault data.", file=sys.stderr)
+        if model_thread.is_alive():
+            print("WARNING: Model still loading after 120s, skipping startup indexing.", file=sys.stderr)
+        else:
+            try:
+                _index_vault(state)
+            except Exception as exc:
+                print(f"ERROR: Startup indexing failed: {exc}", file=sys.stderr)
+                print("Server will start without pre-indexed vault data.", file=sys.stderr)
 
     # File watcher
     if vault_exists and config.auto_index:
@@ -342,7 +345,6 @@ def brain_status() -> dict:
     Does NOT require the embedding model — always responds instantly.
     """
     state: BrainState = mcp.get_context().request_context.lifespan_context
-    notes = state.db.get_all_notes()
     counts = state.db.get_region_note_counts()
     edge_types = state.db.get_edge_type_counts()
     from brain_mcp.tools.recent import REGION_NAMES
@@ -352,7 +354,7 @@ def brain_status() -> dict:
         if 0 <= idx < 12
     }
     return {
-        "total_notes": len(notes),
+        "total_notes": state.db.get_note_count(),
         "total_vectors": state.vectors.size,
         "total_edges": sum(edge_types.values()),
         "edge_types": edge_types,

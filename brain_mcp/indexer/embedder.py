@@ -34,10 +34,8 @@ class SentenceTransformerBackend:
             self._load()
 
     def _load(self) -> None:
-        if self._model is not None:
-            return
         with self._load_lock:
-            if self._model is not None:  # double-check after acquiring lock
+            if self._model is not None:
                 return
             import time
             t0 = time.perf_counter()
@@ -51,16 +49,21 @@ class SentenceTransformerBackend:
             print(f"Model loaded in {elapsed:.1f}s.", file=sys.stderr)
             self._ready.set()
 
+    def _get_model(self):
+        """Thread-safe model accessor. Loads on first call, returns cached reference."""
+        with self._load_lock:
+            if self._model is None:
+                self._load()
+            return self._model
+
     def wait_ready(self, timeout: float = 60.0) -> bool:
         """Block until the model is loaded. Returns False on timeout."""
-        if self._model is not None:
-            return True
         return self._ready.wait(timeout=timeout)
 
     @property
     def is_ready(self) -> bool:
         """Check if the model is loaded without blocking."""
-        return self._model is not None
+        return self._ready.is_set()
 
     @property
     def dimension(self) -> int:
@@ -71,8 +74,8 @@ class SentenceTransformerBackend:
 
     def embed(self, texts: list[str]) -> np.ndarray:
         """Encode texts into normalized embedding vectors."""
-        self._load()
-        vectors = self._model.encode(
+        model = self._get_model()
+        vectors = model.encode(
             texts,
             batch_size=64,
             show_progress_bar=False,

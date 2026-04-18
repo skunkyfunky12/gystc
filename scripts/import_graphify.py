@@ -24,16 +24,25 @@ def normalize_label(label: str) -> str:
 
 
 def build_note_index(db: BrainDB) -> dict[str, int]:
-    """Build lookup: normalized title -> note_id."""
+    """Build lookup: normalized title -> note_id. Excludes ambiguous collisions."""
     index: dict[str, int] = {}
+    collisions: set[str] = set()
     for note in db.get_all_notes():
         # Index by title (normalized)
         key = normalize_label(note["title"])
-        index[key] = note["id"]
+        if key in index and index[key] != note["id"]:
+            collisions.add(key)
+        else:
+            index[key] = note["id"]
         # Also index by filename stem from path
         path_stem = Path(note["path"]).stem.lower().replace("_", " ").replace("-", " ")
         if path_stem not in index:
             index[path_stem] = note["id"]
+    # Remove ambiguous keys
+    for key in collisions:
+        index.pop(key, None)
+    if collisions:
+        print(f"WARNING: {len(collisions)} ambiguous title collisions excluded from matching", file=sys.stderr)
     return index
 
 
@@ -91,9 +100,8 @@ def import_graphify(graph_path: Path, db: BrainDB, *, dry_run: bool = False) -> 
 
     imported = 0
     if not dry_run and edges_to_insert:
-        # Clear old graphify edges first
-        deleted = db.delete_edges_by_type_prefix("graphify:")
-        imported = db.bulk_upsert_edges(edges_to_insert)
+        # Atomic: delete old graphify edges + insert new ones in single transaction
+        _deleted, imported = db.replace_edges_by_type_prefix("graphify:", edges_to_insert)
 
     return {
         "graph_nodes": len(nodes),

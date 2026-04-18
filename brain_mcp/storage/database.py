@@ -82,6 +82,10 @@ class BrainDB:
         with self._lock:
             return self._conn.execute("SELECT * FROM notes WHERE id=?", (note_id,)).fetchone()
 
+    def get_note_count(self) -> int:
+        with self._lock:
+            return self._conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
+
     def get_all_notes(self) -> list[sqlite3.Row]:
         with self._lock:
             return self._conn.execute("SELECT * FROM notes ORDER BY id").fetchall()
@@ -164,6 +168,25 @@ class BrainDB:
             cursor = self._conn.execute("DELETE FROM edges WHERE edge_type LIKE ?", (prefix + "%",))
             self._conn.commit()
             return cursor.rowcount
+
+    def replace_edges_by_type_prefix(self, prefix: str, edges: list[tuple]) -> tuple[int, int]:
+        """Atomically delete all edges with prefix and insert new ones in a single transaction.
+        Returns (deleted_count, inserted_count)."""
+        with self._lock:
+            cursor = self._conn.execute("DELETE FROM edges WHERE edge_type LIKE ?", (prefix + "%",))
+            deleted = cursor.rowcount
+            if edges:
+                self._conn.executemany(
+                    """INSERT INTO edges (source_id, target_id, link_text, edge_type, weight, confidence, source_file)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(source_id, target_id) DO UPDATE SET
+                         link_text=excluded.link_text, edge_type=excluded.edge_type,
+                         weight=excluded.weight, confidence=excluded.confidence,
+                         source_file=excluded.source_file""",
+                    edges,
+                )
+            self._conn.commit()
+            return deleted, len(edges)
 
     def get_edge_type_counts(self) -> dict[str, int]:
         """Count edges by type."""
