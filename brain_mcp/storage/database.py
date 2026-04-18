@@ -23,7 +23,19 @@ class BrainDB:
     def close(self) -> None:
         self._conn.close()
 
-    def upsert_note(self, path, title, content, content_hash, region_idx, tags, word_count, created_at, modified_at, faiss_idx=None) -> int:
+    def upsert_note(
+        self,
+        path: str,
+        title: str,
+        content: str,
+        content_hash: str,
+        region_idx: int,
+        tags: list[str],
+        word_count: int,
+        created_at: str,
+        modified_at: str,
+        faiss_idx: int | None = None,
+    ) -> int:
         tags_json = json.dumps(tags)
         with self._lock:
             # Grab old FTS data before upsert so we can remove stale index entry
