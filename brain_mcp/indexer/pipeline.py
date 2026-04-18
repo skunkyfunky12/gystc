@@ -52,10 +52,6 @@ def index_vault(
         title_to_id[note["title"]] = note_id
         to_embed.append((note_id, note["content"]))
 
-    # Remove old FAISS vectors before adding new ones
-    if old_faiss_ids:
-        vectors.remove(old_faiss_ids)
-
     if to_embed:
         t0 = time.time()
         texts = [t for _, t in to_embed]
@@ -64,10 +60,15 @@ def index_vault(
             faiss_ids = vectors.add(vecs)
             for (note_id, _), fid in zip(to_embed, faiss_ids):
                 db.set_faiss_idx(note_id, fid)
+            # Only remove old vectors after new ones are established
+            if old_faiss_ids:
+                vectors.remove(old_faiss_ids)
             elapsed = time.time() - t0
             print(f"Indexed {len(to_embed)} new/changed notes in {elapsed:.1f}s.", file=sys.stderr)
         except Exception as exc:
             print(f"Embedding error during indexing: {exc}", file=sys.stderr)
+    elif old_faiss_ids:
+        vectors.remove(old_faiss_ids)
 
     # Build edges from backlinks
     for note in notes:
