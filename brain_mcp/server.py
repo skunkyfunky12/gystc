@@ -209,6 +209,29 @@ def brain_context(file_paths: list[str] | None = None, task_description: str | N
                                  file_paths=file_paths, task_description=task_description,
                                  depth=depth, max_notes=max_notes)
 
+@mcp.tool()
+def brain_reindex(force: bool = False) -> dict:
+    """Re-index the vault. Use after bulk edits, graphify exports, or when results seem stale.
+
+    Args:
+        force: Re-embed all notes even if unchanged (default: false)
+    """
+    import time
+    state: BrainState = mcp.get_context().request_context.lifespan_context
+    if state.config.vault_path is None or not state.config.vault_path.is_dir():
+        return {"error": "No vault_path configured or directory not found"}
+    t0 = time.time()
+    count = index_vault(state.db, state.vectors, state.embedder,
+                        state.config.vault_path, state.config.folder_to_region, force=force)
+    try:
+        state.vectors.save(state.config.index_path)
+    except Exception as exc:
+        print(f"ERROR: Failed to save index after reindex: {exc}", file=sys.stderr)
+    total = len(state.db.get_all_notes())
+    elapsed = round(time.time() - t0, 1)
+    print(f"Reindex complete: {count} new/changed, {total} total in {elapsed}s", file=sys.stderr)
+    return {"indexed": count, "total": total, "elapsed_seconds": elapsed}
+
 # ---------------------------------------------------------------------------
 # MCP Resources
 # ---------------------------------------------------------------------------
