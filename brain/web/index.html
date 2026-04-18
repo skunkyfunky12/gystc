@@ -462,6 +462,121 @@
   #chip-mcp { cursor: default; display: inline-flex; align-items: center; gap: 6px; }
   #chip-mcp .mcp-req { color: var(--ink-0); margin-left: 4px; }
 
+  /* ============ SETTINGS PANEL ============ */
+  .settings {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 420px; max-height: 80vh;
+    background: rgba(10, 14, 21, 0.97);
+    border: 1px solid var(--line-2);
+    border-radius: 12px;
+    backdrop-filter: blur(20px);
+    z-index: 200;
+    display: none;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.7);
+    overflow-y: auto;
+  }
+  .settings.visible { display: block; }
+  .settings::-webkit-scrollbar { width: 5px; }
+  .settings::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 3px; }
+  .settings-head {
+    padding: 14px 18px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: space-between;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--ink-0);
+    position: sticky; top: 0; background: rgba(10,14,21,0.97); z-index: 1;
+  }
+  .settings-head .close { cursor: pointer; color: var(--ink-2); font-size: 14px; transition: color .15s; }
+  .settings-head .close:hover { color: var(--ink-0); }
+  .settings-group { padding: 12px 18px; border-bottom: 1px solid var(--line); }
+  .settings-group:last-child { border-bottom: none; }
+  .settings-label {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--ink-2); margin-bottom: 6px;
+  }
+  .settings-hint {
+    font-family: var(--mono); font-size: 10px; color: var(--ink-3);
+    margin-top: 4px; letter-spacing: 0.04em;
+  }
+  .settings-value {
+    font-size: 12px; color: var(--ink-0); line-height: 1.4;
+    word-break: break-all;
+  }
+  .settings-value.mono { font-family: var(--mono); font-size: 11px; }
+  .settings-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .settings-row > div:first-child { flex: 1; }
+  .settings-row .settings-label { margin-bottom: 0; }
+  .settings-divider { height: 1px; background: var(--line-2); margin: 0; }
+  .settings-select {
+    width: 100%; height: 30px;
+    background: var(--bg-1); border: 1px solid var(--line);
+    border-radius: 6px; padding: 0 10px;
+    color: var(--ink-0); font-family: var(--mono); font-size: 11px;
+    outline: none; cursor: pointer;
+  }
+  .settings-select:focus { border-color: rgba(94, 233, 240, 0.35); }
+  .settings-select option { background: var(--bg-1); color: var(--ink-0); }
+
+  /* Toggle switch */
+  .toggle { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute; cursor: pointer; inset: 0;
+    background: var(--bg-2); border: 1px solid var(--line);
+    border-radius: 10px; transition: all .2s ease;
+  }
+  .toggle-slider::before {
+    content: ''; position: absolute; height: 14px; width: 14px;
+    left: 2px; bottom: 2px; background: var(--ink-2);
+    border-radius: 50%; transition: all .2s ease;
+  }
+  .toggle input:checked + .toggle-slider { background: rgba(94,233,240,0.15); border-color: rgba(94,233,240,0.4); }
+  .toggle input:checked + .toggle-slider::before { transform: translateX(16px); background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+
+  /* Stats grid */
+  .settings-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .settings-stat {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 10px; background: var(--bg-1); border: 1px solid var(--line);
+    border-radius: 6px; font-size: 11px;
+  }
+  .stat-label { font-family: var(--mono); font-size: 10px; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.08em; }
+  .stat-val { font-family: var(--mono); color: var(--ink-0); font-weight: 500; }
+
+  /* Mappings table */
+  .settings-mappings {
+    display: flex; flex-direction: column; gap: 4px;
+    max-height: 180px; overflow-y: auto;
+  }
+  .settings-mappings::-webkit-scrollbar { width: 4px; }
+  .settings-mappings::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 2px; }
+  .mapping-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px; background: var(--bg-1); border: 1px solid var(--line);
+    border-radius: 5px; font-size: 11px;
+  }
+  .mapping-folder { color: var(--ink-0); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mapping-arrow { color: var(--ink-3); font-family: var(--mono); font-size: 10px; }
+  .mapping-region { color: var(--accent); font-family: var(--mono); font-size: 10px; }
+  .mapping-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .mapping-empty { font-family: var(--mono); font-size: 10px; color: var(--ink-3); padding: 8px 0; }
+
+  /* Reindex button */
+  .settings-btn {
+    width: 100%; justify-content: center; height: 32px;
+    border-color: rgba(94,233,240,0.25); color: var(--accent);
+  }
+  .settings-btn:hover { background: rgba(94,233,240,0.06); border-color: rgba(94,233,240,0.4); }
+  .settings-btn.loading { pointer-events: none; opacity: 0.6; }
+
+  /* Settings overlay backdrop */
+  .settings-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+    z-index: 199; display: none;
+  }
+  .settings-backdrop.visible { display: block; }
+
   /* ============ HEATMAP BTN ============ */
   .btn.heat-active { border-color: rgba(255, 92, 124, 0.4); color: var(--danger); background: rgba(255,92,124,0.06); }
 </style>
@@ -505,6 +620,9 @@
       </button>
       <button class="btn icon-btn" id="btn-reset" title="Reset View">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+      </button>
+      <button class="btn icon-btn" id="btn-settings" title="Settings">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
       </button>
       <button class="btn" id="btn-tweaks">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
@@ -669,6 +787,82 @@
   <div class="tweak-group">
     <div class="tweak-label">Verbindungen <span class="tl-val" id="edge-val">0.35</span></div>
     <input type="range" id="edge-slider" min="0" max="1" step="0.05" value="0.35"/>
+  </div>
+</div>
+
+<div class="settings-backdrop" id="settings-backdrop"></div>
+<!-- Settings Panel -->
+<div class="settings" id="settings-panel">
+  <div class="settings-head">
+    <span>Settings</span>
+    <span class="close" id="settings-close">&#x2715;</span>
+  </div>
+
+  <div class="settings-group">
+    <div class="settings-label">Vault Path</div>
+    <div class="settings-value" id="cfg-vault-path" title="">—</div>
+  </div>
+
+  <div class="settings-group">
+    <div class="settings-label">Embedding Model</div>
+    <div class="settings-value mono" id="cfg-model">—</div>
+  </div>
+
+  <div class="settings-group settings-row">
+    <div>
+      <div class="settings-label">Auto-Index</div>
+      <div class="settings-hint">Live-Sync bei Dateiänderungen</div>
+    </div>
+    <label class="toggle">
+      <input type="checkbox" id="cfg-auto-index"/>
+      <span class="toggle-slider"></span>
+    </label>
+  </div>
+
+  <div class="settings-group settings-row">
+    <div>
+      <div class="settings-label">Index on Startup</div>
+      <div class="settings-hint">Vault beim Start scannen</div>
+    </div>
+    <label class="toggle">
+      <input type="checkbox" id="cfg-index-startup"/>
+      <span class="toggle-slider"></span>
+    </label>
+  </div>
+
+  <div class="settings-group">
+    <div class="settings-label">Log Level</div>
+    <select class="settings-select" id="cfg-log-level">
+      <option value="DEBUG">DEBUG</option>
+      <option value="INFO">INFO</option>
+      <option value="WARNING">WARNING</option>
+      <option value="ERROR">ERROR</option>
+    </select>
+  </div>
+
+  <div class="settings-group">
+    <div class="settings-label">Folder &rarr; Region Mapping</div>
+    <div class="settings-mappings" id="cfg-mappings"></div>
+  </div>
+
+  <div class="settings-divider"></div>
+
+  <div class="settings-group">
+    <div class="settings-label">Status</div>
+    <div class="settings-stats">
+      <div class="settings-stat"><span class="stat-label">Notes</span><span class="stat-val" id="cfg-notes">—</span></div>
+      <div class="settings-stat"><span class="stat-label">Vectors</span><span class="stat-val" id="cfg-vectors">—</span></div>
+      <div class="settings-stat"><span class="stat-label">Regions</span><span class="stat-val" id="cfg-regions">12</span></div>
+      <div class="settings-stat"><span class="stat-label">Edges</span><span class="stat-val" id="cfg-edges">—</span></div>
+    </div>
+  </div>
+
+  <div class="settings-group">
+    <button class="btn settings-btn" id="cfg-reindex">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
+      Reindex Vault
+    </button>
+    <div class="settings-hint" id="cfg-reindex-status"></div>
   </div>
 </div>
 
