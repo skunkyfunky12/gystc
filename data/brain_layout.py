@@ -9,7 +9,7 @@ def assign_initial_positions(nodes):
     """Assign 3D positions based on brain region centers with random scatter.
 
     Each node is placed near its community's brain region center,
-    with Gaussian scatter (std=15) for visual separation.
+    with Gaussian scatter (std=50) for visual separation.
 
     Args:
         nodes: List of dicts, each with an optional "community" key (int).
@@ -26,6 +26,6 @@ def assign_initial_positions(nodes):
             community = node.get("community", 0)
             region_idx = COMMUNITY_TO_REGION.get(community, 9)
         center = np.array(REGIONS[region_idx]["position"], dtype=np.float32)
-        scatter = rng.normal(0, 15.0, size=3).astype(np.float32)
+        scatter = rng.normal(0, 50.0, size=3).astype(np.float32)
         positions[i] = center + scatter
     return positions

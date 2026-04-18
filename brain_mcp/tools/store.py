@@ -12,6 +12,7 @@ from brain_mcp.indexer.embedder import EmbeddingBackend
 from brain_mcp.indexer.scanner import REGION_TAG_TO_IDX, compute_content_hash
 from brain_mcp.indexer.vector_store import VectorStore
 from brain_mcp.storage.database import BrainDB
+from brain_mcp.tools.classifier import classify_region
 from brain_mcp.tools.recent import REGION_NAMES, REGION_NAME_TO_IDX, resolve_region_idx
 
 if TYPE_CHECKING:
@@ -90,7 +91,8 @@ def handle_brain_store(
     elif region:
         r_idx = resolve_region_idx(region)  # type: ignore[assignment]
     else:
-        r_idx = 9  # Stammhirn default
+        rel_path = f"{folder_clean}/{safe_title}.md" if folder_clean else f"{safe_title}.md"
+        r_idx = classify_region(safe_title, content, path=rel_path)
 
     # REVIEW FIX: Strip existing #brain/ tags before appending new one
     content = _BRAIN_TAG_RE.sub('', content).rstrip()

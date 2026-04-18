@@ -86,6 +86,13 @@ class BrainDB:
         with self._lock:
             return self._conn.execute("SELECT * FROM notes ORDER BY id").fetchall()
 
+    def update_note_region(self, note_id: int, region_idx: int) -> None:
+        if not (0 <= region_idx < 12):
+            raise ValueError(f"region_idx must be 0-11, got {region_idx}")
+        with self._lock:
+            self._conn.execute("UPDATE notes SET region_idx = ? WHERE id = ?", (region_idx, note_id))
+            self._conn.commit()
+
     def get_notes_by_faiss_indices(self, indices: list[int]) -> list[sqlite3.Row]:
         if not indices:
             return []

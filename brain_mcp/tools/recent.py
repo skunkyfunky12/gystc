@@ -11,15 +11,27 @@ REGION_NAME_TO_IDX = {name: i for i, name in enumerate(REGION_NAMES)}
 _REGION_NAME_TO_IDX_LOWER = {name.lower(): i for i, name in enumerate(REGION_NAMES)}
 
 
+def _normalize_umlauts(s: str) -> str:
+    """Normalize German umlauts: ä→ae, ö→oe, ü→ue, ß→ss."""
+    return s.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss") \
+            .replace("Ä", "Ae").replace("Ö", "Oe").replace("Ü", "Ue")
+
+
 def resolve_region_idx(region: str | None) -> int | None:
-    """Resolve a region name to its index, case-insensitively. Returns None if not found or input is None."""
+    """Resolve a region name to its index. Handles case and German umlauts."""
     if region is None:
         return None
-    # Try exact match first, then case-insensitive
+    # Try exact match first
     idx = REGION_NAME_TO_IDX.get(region)
     if idx is not None:
         return idx
-    return _REGION_NAME_TO_IDX_LOWER.get(region.lower())
+    # Case-insensitive
+    idx = _REGION_NAME_TO_IDX_LOWER.get(region.lower())
+    if idx is not None:
+        return idx
+    # Umlaut-normalized (ä→ae, ö→oe, ü→ue)
+    normalized = _normalize_umlauts(region).lower()
+    return _REGION_NAME_TO_IDX_LOWER.get(normalized)
 
 def handle_brain_recent(db: BrainDB, days: int = 7, region: str | None = None, limit: int = 20) -> list[dict]:
     days = max(1, min(days, 365))
