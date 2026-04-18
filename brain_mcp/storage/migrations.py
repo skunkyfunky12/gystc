@@ -38,6 +38,14 @@ MIGRATIONS: list[str] = [
     CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
     CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
     """,
+    # v2: edge_type + weight for graphify semantic edges
+    """
+    ALTER TABLE edges ADD COLUMN edge_type TEXT NOT NULL DEFAULT 'backlink';
+    ALTER TABLE edges ADD COLUMN weight REAL NOT NULL DEFAULT 1.0;
+    ALTER TABLE edges ADD COLUMN confidence REAL DEFAULT NULL;
+    ALTER TABLE edges ADD COLUMN source_file TEXT DEFAULT '';
+    CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(edge_type);
+    """,
 ]
 
 DEFAULT_REGIONS = [

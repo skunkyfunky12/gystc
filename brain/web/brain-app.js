@@ -21,18 +21,18 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 // Deep/central regions (thalamus, basal, nucleus, amygdala) stay near core;
 // cortical regions pushed further out along their lobes.
 const REGIONS = [
-  { key: 'prefrontal', name: 'Präfrontaler Cortex',  subtitle: 'Entscheidungen · Planung', color: '#4DA3FF', pos: [   0, 275, -362] },
-  { key: 'motor',      name: 'Motorischer Cortex',   subtitle: 'Code · Commits · Actions', color: '#22C55E', pos: [-137, 312, -175] },
-  { key: 'sensory',    name: 'Sensorischer Cortex',  subtitle: 'Dateien · Inputs · Logs', color: '#5EE9F0', pos: [ 137, 312,  -87] },
-  { key: 'hippo',      name: 'Hippocampus',          subtitle: 'Langzeitgedächtnis · Projekte', color: '#9D7CFF', pos: [-225,   0,   87] },
-  { key: 'cerebellum', name: 'Kleinhirn',            subtitle: 'Routinen · Skripte · Workflows', color: '#EC4899', pos: [ 187,-100,  312] },
-  { key: 'nucleus',    name: 'Nucleus Accumbens',    subtitle: 'Ziele · Prioritäten · Wins', color: '#FACC15', pos: [  50, 150, -200] },
-  { key: 'broca',      name: 'Broca-Areal',          subtitle: 'Sprache · Prompts · Schreiben', color: '#F97316', pos: [-175, 137, -225] },
-  { key: 'visual',     name: 'Visueller Cortex',     subtitle: 'Design · UI · Diagramme', color: '#A855F7', pos: [ 137,  87,  312] },
-  { key: 'thalamus',   name: 'Thalamus',             subtitle: 'Context-Router · MCP · API', color: '#3FD4E8', pos: [   0, 175,   50] },
-  { key: 'stem',       name: 'Stammhirn',            subtitle: 'System · Config · Infra', color: '#94A3B8', pos: [   0,-275,  225] },
-  { key: 'basal',      name: 'Basalganglien',        subtitle: 'Habits · Tools · Patterns', color: '#F43F5E', pos: [-150, 100,  -80] },
-  { key: 'amygdala',   name: 'Amygdala',             subtitle: 'Alerts · Fehler · Risiken', color: '#FB923C', pos: [-100, -62, -137] },
+  { key: 'prefrontal', name: 'Präfrontaler Cortex',  subtitle: 'Entscheidungen · Planung', color: '#4DA3FF', pos: [   0, 420, -540] },
+  { key: 'motor',      name: 'Motorischer Cortex',   subtitle: 'Code · Commits · Actions', color: '#22C55E', pos: [-210, 470, -260] },
+  { key: 'sensory',    name: 'Sensorischer Cortex',  subtitle: 'Dateien · Inputs · Logs', color: '#5EE9F0', pos: [ 210, 470, -130] },
+  { key: 'hippo',      name: 'Hippocampus',          subtitle: 'Langzeitgedächtnis · Projekte', color: '#9D7CFF', pos: [-340,   0,  130] },
+  { key: 'cerebellum', name: 'Kleinhirn',            subtitle: 'Routinen · Skripte · Workflows', color: '#EC4899', pos: [ 280,-150,  470] },
+  { key: 'nucleus',    name: 'Nucleus Accumbens',    subtitle: 'Ziele · Prioritäten · Wins', color: '#FACC15', pos: [  75, 225, -300] },
+  { key: 'broca',      name: 'Broca-Areal',          subtitle: 'Sprache · Prompts · Schreiben', color: '#F97316', pos: [-260, 210, -340] },
+  { key: 'visual',     name: 'Visueller Cortex',     subtitle: 'Design · UI · Diagramme', color: '#A855F7', pos: [ 210, 130,  470] },
+  { key: 'thalamus',   name: 'Thalamus',             subtitle: 'Context-Router · MCP · API', color: '#3FD4E8', pos: [   0, 260,   75] },
+  { key: 'stem',       name: 'Stammhirn',            subtitle: 'System · Config · Infra', color: '#94A3B8', pos: [   0,-420,  340] },
+  { key: 'basal',      name: 'Basalganglien',        subtitle: 'Habits · Tools · Patterns', color: '#F43F5E', pos: [-225, 150, -120] },
+  { key: 'amygdala',   name: 'Amygdala',             subtitle: 'Alerts · Fehler · Risiken', color: '#FB923C', pos: [-150, -95, -210] },
 ];
 
 const PALETTES = {
@@ -348,10 +348,10 @@ renderer.toneMappingExposure = 1.1;
 
 const scene = new THREE.Scene();
 scene.background = null;
-scene.fog = new THREE.FogExp2(0x05070B, 0.005);
+scene.fog = new THREE.FogExp2(0x05070B, 0.002);
 
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 4000);
-camera.position.set(0, 50, 500);
+camera.position.set(0, 100, 800);
 
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
@@ -361,7 +361,7 @@ controls.zoomSpeed = 0.8;
 controls.autoRotate = true;
 controls.autoRotateSpeed = 0.12;
 controls.minDistance = 50;
-controls.maxDistance = 1200;
+controls.maxDistance = 2000;
 
 /* ---------- WASD FLY CONTROLS ---------- */
 
@@ -1022,23 +1022,73 @@ bindSlider('pulse-slider', 'pulse-val', (v) => {
 });
 bindSlider('edge-slider', 'edge-val', (v) => {
   state.edgeOpacity = v;
-  for (let i = 0; i < edgeAlphas.length; i++) edgeAlphas[i] = v;
-  edgeGeom.attributes.alpha.needsUpdate = true;
+  applyEdgeFilters();
   persistTweaks({ edgeOpacity: v });
 });
 
+// Pre-compute edge lengths for range filter
+const edgeLengths = new Float32Array(edgeCount);
+let maxEdgeLength = 0;
+graph.edges.forEach(([a, b], i) => {
+  const na = graph.nodes[a], nb = graph.nodes[b];
+  const dx = na.x - nb.x, dy = na.y - nb.y, dz = na.z - nb.z;
+  edgeLengths[i] = Math.sqrt(dx*dx + dy*dy + dz*dz);
+  if (edgeLengths[i] > maxEdgeLength) maxEdgeLength = edgeLengths[i];
+});
+
+state.edgeRange = 1.0;
+state.intraOnly = false;
+
+function applyEdgeFilters() {
+  const cutoff = state.edgeRange * maxEdgeLength;
+  graph.edges.forEach(([a, b], i) => {
+    const na = graph.nodes[a], nb = graph.nodes[b];
+    const sameRegion = na.region === nb.region;
+    const inRange = edgeLengths[i] <= cutoff;
+    const show = inRange && (!state.intraOnly || sameRegion);
+    const alpha = show ? state.edgeOpacity : 0.0;
+    const off = i * vertsPerEdge;
+    for (let s = 0; s < vertsPerEdge; s++) edgeAlphas[off + s] = alpha;
+  });
+  edgeGeom.attributes.alpha.needsUpdate = true;
+}
+
+bindSlider('edgerange-slider', 'edgerange-val', (v) => {
+  state.edgeRange = v;
+  document.getElementById('edgerange-val').textContent = Math.round(v * 100) + '%';
+  applyEdgeFilters();
+  persistTweaks({ edgeRange: v });
+}, true);
+bindSlider('edgewidth-slider', 'edgewidth-val', (v) => {
+  edgeLines.material.linewidth = v;
+  persistTweaks({ edgeWidth: v });
+});
+bindSlider('intra-slider', 'intra-val', (v) => {
+  state.intraOnly = v >= 1;
+  document.getElementById('intra-val').textContent = state.intraOnly ? 'AN' : 'AUS';
+  applyEdgeFilters();
+  persistTweaks({ intraOnly: state.intraOnly });
+}, true);
+
 // init slider UI values
 state.edgeOpacity = TWEAK_DEFAULTS.edgeOpacity || 0.35;
+state.edgeRange = TWEAK_DEFAULTS.edgeRange || 1.0;
+state.intraOnly = TWEAK_DEFAULTS.intraOnly || false;
 document.getElementById('glow-slider').value = state.glow;
 document.getElementById('stars-slider').value = state.stars;
 document.getElementById('size-slider').value = state.nodeSize;
 document.getElementById('pulse-slider').value = state.pulseSpeed;
 document.getElementById('edge-slider').value = state.edgeOpacity;
+document.getElementById('edgerange-slider').value = state.edgeRange;
+document.getElementById('edgewidth-slider').value = 1.0;
+document.getElementById('intra-slider').value = state.intraOnly ? 1 : 0;
 document.getElementById('glow-val').textContent = state.glow.toFixed(2);
 document.getElementById('stars-val').textContent = state.stars;
 document.getElementById('size-val').textContent = state.nodeSize.toFixed(2);
 document.getElementById('pulse-val').textContent = state.pulseSpeed.toFixed(2);
 document.getElementById('edge-val').textContent = state.edgeOpacity.toFixed(2);
+document.getElementById('edgerange-val').textContent = Math.round(state.edgeRange * 100) + '%';
+document.getElementById('intra-val').textContent = state.intraOnly ? 'AN' : 'AUS';
 
 // Top buttons
 document.getElementById('btn-rotate').addEventListener('click', () => {

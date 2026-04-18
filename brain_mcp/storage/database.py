@@ -82,6 +82,10 @@ class BrainDB:
         with self._lock:
             return self._conn.execute("SELECT * FROM notes WHERE id=?", (note_id,)).fetchone()
 
+    def get_note_count(self) -> int:
+        with self._lock:
+            return self._conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
+
     def get_all_notes(self) -> list[sqlite3.Row]:
         with self._lock:
             return self._conn.execute("SELECT * FROM notes ORDER BY id").fetchall()
@@ -92,6 +96,15 @@ class BrainDB:
         with self._lock:
             self._conn.execute("UPDATE notes SET region_idx = ? WHERE id = ?", (region_idx, note_id))
             self._conn.commit()
+
+    def get_notes_by_ids(self, note_ids: list[int]) -> list[sqlite3.Row]:
+        if not note_ids:
+            return []
+        placeholders = ",".join("?" for _ in note_ids)
+        with self._lock:
+            return self._conn.execute(
+                f"SELECT * FROM notes WHERE id IN ({placeholders})", tuple(note_ids)
+            ).fetchall()
 
     def get_notes_by_faiss_indices(self, indices: list[int]) -> list[sqlite3.Row]:
         if not indices:
@@ -112,13 +125,74 @@ class BrainDB:
                 self._conn.execute("DELETE FROM notes WHERE id=?", (row["id"],))
                 self._conn.commit()
 
-    def upsert_edge(self, source_id: int, target_id: int, link_text: str = "") -> None:
+    def upsert_edge(self, source_id: int, target_id: int, link_text: str = "",
+                    edge_type: str = "backlink", weight: float = 1.0,
+                    confidence: float | None = None, source_file: str = "") -> None:
         with self._lock:
             self._conn.execute(
-                "INSERT OR REPLACE INTO edges (source_id, target_id, link_text) VALUES (?, ?, ?)",
-                (source_id, target_id, link_text),
+                """INSERT INTO edges (source_id, target_id, link_text, edge_type, weight, confidence, source_file)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(source_id, target_id) DO UPDATE SET
+                     link_text=excluded.link_text, edge_type=excluded.edge_type,
+                     weight=excluded.weight, confidence=excluded.confidence,
+                     source_file=excluded.source_file""",
+                (source_id, target_id, link_text, edge_type, weight, confidence, source_file),
             )
             self._conn.commit()
+
+    def bulk_upsert_edges(self, edges: list[tuple]) -> int:
+        """Bulk insert/update edges. Each tuple: (source_id, target_id, link_text, edge_type, weight, confidence, source_file)."""
+        with self._lock:
+            self._conn.executemany(
+                """INSERT INTO edges (source_id, target_id, link_text, edge_type, weight, confidence, source_file)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(source_id, target_id) DO UPDATE SET
+                     link_text=excluded.link_text, edge_type=excluded.edge_type,
+                     weight=excluded.weight, confidence=excluded.confidence,
+                     source_file=excluded.source_file""",
+                edges,
+            )
+            self._conn.commit()
+            return len(edges)
+
+    def delete_edges_by_type(self, edge_type: str) -> int:
+        """Delete all edges of a specific type. Returns count deleted."""
+        with self._lock:
+            cursor = self._conn.execute("DELETE FROM edges WHERE edge_type = ?", (edge_type,))
+            self._conn.commit()
+            return cursor.rowcount
+
+    def delete_edges_by_type_prefix(self, prefix: str) -> int:
+        """Delete all edges whose type starts with prefix (e.g. 'graphify:')."""
+        with self._lock:
+            cursor = self._conn.execute("DELETE FROM edges WHERE edge_type LIKE ?", (prefix + "%",))
+            self._conn.commit()
+            return cursor.rowcount
+
+    def replace_edges_by_type_prefix(self, prefix: str, edges: list[tuple]) -> tuple[int, int]:
+        """Atomically delete all edges with prefix and insert new ones in a single transaction.
+        Returns (deleted_count, inserted_count)."""
+        with self._lock:
+            cursor = self._conn.execute("DELETE FROM edges WHERE edge_type LIKE ?", (prefix + "%",))
+            deleted = cursor.rowcount
+            if edges:
+                self._conn.executemany(
+                    """INSERT INTO edges (source_id, target_id, link_text, edge_type, weight, confidence, source_file)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(source_id, target_id) DO UPDATE SET
+                         link_text=excluded.link_text, edge_type=excluded.edge_type,
+                         weight=excluded.weight, confidence=excluded.confidence,
+                         source_file=excluded.source_file""",
+                    edges,
+                )
+            self._conn.commit()
+            return deleted, len(edges)
+
+    def get_edge_type_counts(self) -> dict[str, int]:
+        """Count edges by type."""
+        with self._lock:
+            rows = self._conn.execute("SELECT edge_type, COUNT(*) as cnt FROM edges GROUP BY edge_type").fetchall()
+            return {r["edge_type"]: r["cnt"] for r in rows}
 
     def get_edges_for_note(self, note_id: int) -> list[sqlite3.Row]:
         with self._lock:

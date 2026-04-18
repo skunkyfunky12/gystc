@@ -20,28 +20,50 @@ class EmbeddingBackend(Protocol):
 
 
 class SentenceTransformerBackend:
-    """Embedding backend using sentence-transformers with lazy, thread-safe model loading."""
+    """Embedding backend using sentence-transformers with thread-safe model loading."""
 
     def __init__(
-        self, model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"
+        self, model_name: str = "paraphrase-multilingual-MiniLM-L12-v2",
+        eager: bool = False,
     ) -> None:
         self._model_name = model_name
         self._model = None
         self._load_lock = threading.Lock()
+        self._ready = threading.Event()
+        if eager:
+            self._load()
 
     def _load(self) -> None:
-        if self._model is not None:
-            return
         with self._load_lock:
-            if self._model is not None:  # double-check after acquiring lock
+            if self._model is not None:
                 return
+            import time
+            t0 = time.perf_counter()
             print(
                 f"Loading embedding model: {self._model_name}...", file=sys.stderr
             )
             from sentence_transformers import SentenceTransformer
 
             self._model = SentenceTransformer(self._model_name)
-            print("Model loaded.", file=sys.stderr)
+            elapsed = time.perf_counter() - t0
+            print(f"Model loaded in {elapsed:.1f}s.", file=sys.stderr)
+            self._ready.set()
+
+    def _get_model(self):
+        """Thread-safe model accessor. Loads on first call, returns cached reference."""
+        with self._load_lock:
+            if self._model is None:
+                self._load()
+            return self._model
+
+    def wait_ready(self, timeout: float = 60.0) -> bool:
+        """Block until the model is loaded. Returns False on timeout."""
+        return self._ready.wait(timeout=timeout)
+
+    @property
+    def is_ready(self) -> bool:
+        """Check if the model is loaded without blocking."""
+        return self._ready.is_set()
 
     @property
     def dimension(self) -> int:
@@ -52,8 +74,8 @@ class SentenceTransformerBackend:
 
     def embed(self, texts: list[str]) -> np.ndarray:
         """Encode texts into normalized embedding vectors."""
-        self._load()
-        vectors = self._model.encode(
+        model = self._get_model()
+        vectors = model.encode(
             texts,
             batch_size=64,
             show_progress_bar=False,

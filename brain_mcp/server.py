@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import sys
+import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -82,23 +83,33 @@ def _handle_file_change(state: BrainState, path: str, event_type: str) -> None:
 
 @asynccontextmanager
 async def brain_lifespan(server: FastMCP) -> AsyncIterator[BrainState]:
+    import time
+    t0 = time.perf_counter()
     config = load_config()
     config.data_dir.mkdir(parents=True, exist_ok=True)
     db = BrainDB(config.db_path)
+    # Eager model load in background thread to avoid blocking server start
     embedder = SentenceTransformerBackend(config.model_name)
+    model_thread = threading.Thread(target=embedder._load, daemon=True)
+    model_thread.start()
     vectors = VectorStore.load(config.index_path, dimension=embedder.dimension)
     state = BrainState(config=config, db=db, vectors=vectors, embedder=embedder)
-    print(f"Brain MCP Server started. Vault: {config.vault_path}", file=sys.stderr)
+    startup_ms = int((time.perf_counter() - t0) * 1000)
+    print(f"Brain MCP Server started in {startup_ms}ms. Vault: {config.vault_path}", file=sys.stderr)
     print(f"DB: {config.db_path} | Index: {vectors.size} vectors", file=sys.stderr)
 
-    # Startup indexing
+    # Startup indexing — wait for model first since indexing needs it
     vault_exists = config.vault_path is not None and config.vault_path.is_dir()
     if vault_exists and config.index_on_startup:
-        try:
-            _index_vault(state)
-        except Exception as exc:
-            print(f"ERROR: Startup indexing failed: {exc}", file=sys.stderr)
-            print("Server will start without pre-indexed vault data.", file=sys.stderr)
+        model_thread.join(timeout=120)
+        if model_thread.is_alive():
+            print("WARNING: Model still loading after 120s, skipping startup indexing.", file=sys.stderr)
+        else:
+            try:
+                _index_vault(state)
+            except Exception as exc:
+                print(f"ERROR: Startup indexing failed: {exc}", file=sys.stderr)
+                print("Server will start without pre-indexed vault data.", file=sys.stderr)
 
     # File watcher
     if vault_exists and config.auto_index:
@@ -157,6 +168,8 @@ def brain_retrieve(query: str, region: str | None = None, limit: int = 10, thres
         threshold: Min cosine similarity (default 0.3)
     """
     state: BrainState = mcp.get_context().request_context.lifespan_context
+    if not state.embedder.wait_ready(timeout=90):
+        return [{"error": "Embedding model still loading. Use brain_status to check, or try brain_recent/brain_regions instead."}]
     return handle_brain_retrieve(state.db, state.vectors, state.embedder, query=query, region=region, limit=limit, threshold=threshold)
 
 @mcp.tool()
@@ -191,6 +204,8 @@ def brain_related(title: str | None = None, path: str | None = None, limit: int 
         limit: Max results (default 10, max 100)
     """
     state: BrainState = mcp.get_context().request_context.lifespan_context
+    if not state.embedder.wait_ready(timeout=90):
+        return {"error": "Embedding model still loading. Use brain_status to check."}
     return handle_brain_related(state.db, state.vectors, state.embedder, title=title, path=path, limit=limit)
 
 @mcp.tool()
@@ -205,6 +220,8 @@ def brain_context(file_paths: list[str] | None = None, task_description: str | N
         max_notes: Max notes returned (default 10, max 100)
     """
     state: BrainState = mcp.get_context().request_context.lifespan_context
+    if task_description and not state.embedder.wait_ready(timeout=90):
+        return {"error": "Embedding model still loading. Use brain_status to check, or try without task_description."}
     return handle_brain_context(state.db, state.vectors, state.embedder,
                                  file_paths=file_paths, task_description=task_description,
                                  depth=depth, max_notes=max_notes)
@@ -293,6 +310,58 @@ def brain_reclassify(dry_run: bool = True) -> dict:
     if file_errors:
         result["file_errors"] = file_errors[:10]
     return result
+
+@mcp.tool()
+def brain_enrich(graph_json_path: str, dry_run: bool = True) -> dict:
+    """Import graphify graph.json edges into brain.db to enrich the knowledge graph.
+
+    Matches graphify nodes to existing brain notes by title, then imports
+    their relationships as typed edges (graphify:contains, graphify:calls, etc.).
+    Old graphify edges are replaced on each import.
+
+    Args:
+        graph_json_path: Absolute path to graphify's graph.json output
+        dry_run: If true, only show what would be imported (default: true)
+    """
+    from pathlib import Path as _Path
+    from scripts.import_graphify import import_graphify
+
+    state: BrainState = mcp.get_context().request_context.lifespan_context
+    graph_path = _Path(graph_json_path)
+    if not graph_path.exists():
+        return {"error": f"File not found: {graph_json_path}"}
+
+    result = import_graphify(graph_path, state.db, dry_run=dry_run)
+
+    # Also return current edge type distribution
+    if not dry_run:
+        result["edge_types"] = state.db.get_edge_type_counts()
+
+    return result
+
+@mcp.tool()
+def brain_status() -> dict:
+    """Fast health check. Returns note/edge counts, model status, and region distribution.
+    Does NOT require the embedding model — always responds instantly.
+    """
+    state: BrainState = mcp.get_context().request_context.lifespan_context
+    counts = state.db.get_region_note_counts()
+    edge_types = state.db.get_edge_type_counts()
+    from brain_mcp.tools.recent import REGION_NAMES
+    region_dist = {
+        REGION_NAMES[idx]: cnt
+        for idx, cnt in sorted(counts.items())
+        if 0 <= idx < 12
+    }
+    return {
+        "total_notes": state.db.get_note_count(),
+        "total_vectors": state.vectors.size,
+        "total_edges": sum(edge_types.values()),
+        "edge_types": edge_types,
+        "regions": region_dist,
+        "model_loaded": state.embedder.is_ready,
+        "vault_path": str(state.config.vault_path),
+    }
 
 # ---------------------------------------------------------------------------
 # MCP Resources
