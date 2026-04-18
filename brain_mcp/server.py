@@ -8,6 +8,7 @@ from brain_mcp.config import BrainConfig, load_config
 from brain_mcp.indexer.vector_store import VectorStore
 from brain_mcp.storage.database import BrainDB
 from brain_mcp.tools.recent import handle_brain_recent
+from brain_mcp.tools.regions import handle_brain_regions
 
 @dataclass
 class BrainState:
@@ -43,3 +44,15 @@ def brain_recent(days: int = 7, region: str | None = None, limit: int = 20) -> l
     """
     state: BrainState = mcp.get_context().request_context.lifespan_context
     return handle_brain_recent(state.db, days=days, region=region, limit=limit)
+
+@mcp.tool()
+def brain_regions(action: str, region: str | None = None, description: str | None = None, color: str | None = None) -> dict | list[dict]:
+    """List, describe, or customize brain region definitions.
+    Args:
+        action: "list" (all regions), "describe" (one region detail), or "customize" (update)
+        region: Region name (required for describe/customize)
+        description: New description (customize only)
+        color: New hex color like #FF0000 (customize only)
+    """
+    state: BrainState = mcp.get_context().request_context.lifespan_context
+    return handle_brain_regions(state.db, action=action, region=region, description=description, color=color)
