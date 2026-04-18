@@ -294,6 +294,34 @@ def brain_reclassify(dry_run: bool = True) -> dict:
         result["file_errors"] = file_errors[:10]
     return result
 
+@mcp.tool()
+def brain_enrich(graph_json_path: str, dry_run: bool = True) -> dict:
+    """Import graphify graph.json edges into brain.db to enrich the knowledge graph.
+
+    Matches graphify nodes to existing brain notes by title, then imports
+    their relationships as typed edges (graphify:contains, graphify:calls, etc.).
+    Old graphify edges are replaced on each import.
+
+    Args:
+        graph_json_path: Absolute path to graphify's graph.json output
+        dry_run: If true, only show what would be imported (default: true)
+    """
+    from pathlib import Path as _Path
+    from scripts.import_graphify import import_graphify
+
+    state: BrainState = mcp.get_context().request_context.lifespan_context
+    graph_path = _Path(graph_json_path)
+    if not graph_path.exists():
+        return {"error": f"File not found: {graph_json_path}"}
+
+    result = import_graphify(graph_path, state.db, dry_run=dry_run)
+
+    # Also return current edge type distribution
+    if not dry_run:
+        result["edge_types"] = state.db.get_edge_type_counts()
+
+    return result
+
 # ---------------------------------------------------------------------------
 # MCP Resources
 # ---------------------------------------------------------------------------

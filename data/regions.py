@@ -5,18 +5,18 @@ each with a name, RGB color, and 3D position.
 """
 
 REGIONS = [
-    {"name": "Praefrontaler Cortex",  "color": (0.204, 0.596, 0.859), "position": (0.0, 275.0, -362.0)},
-    {"name": "Motorischer Cortex",    "color": (0.906, 0.298, 0.235), "position": (-137.0, 312.0, -175.0)},
-    {"name": "Sensorischer Cortex",   "color": (0.180, 0.800, 0.443), "position": (137.0, 312.0, -87.0)},
-    {"name": "Hippocampus",           "color": (0.953, 0.612, 0.071), "position": (-225.0, 0.0, 87.0)},
-    {"name": "Kleinhirn",             "color": (0.608, 0.349, 0.714), "position": (187.0, -100.0, 312.0)},
-    {"name": "Nucleus Accumbens",     "color": (0.102, 0.737, 0.612), "position": (50.0, 150.0, -200.0)},
-    {"name": "Broca-Areal",           "color": (0.902, 0.494, 0.133), "position": (-175.0, 137.0, -225.0)},
-    {"name": "Visueller Cortex",      "color": (0.557, 0.267, 0.678), "position": (137.0, 87.0, 312.0)},
-    {"name": "Thalamus",              "color": (0.086, 0.627, 0.522), "position": (0.0, 175.0, 50.0)},
-    {"name": "Stammhirn",             "color": (0.584, 0.647, 0.651), "position": (0.0, -275.0, 225.0)},
-    {"name": "Basalganglien",         "color": (0.827, 0.329, 0.000), "position": (-150.0, 100.0, -80.0)},
-    {"name": "Amygdala",              "color": (0.753, 0.224, 0.169), "position": (-100.0, -62.0, -137.0)},
+    {"name": "Praefrontaler Cortex",  "color": (0.204, 0.596, 0.859), "position": (0.0, 420.0, -540.0)},
+    {"name": "Motorischer Cortex",    "color": (0.906, 0.298, 0.235), "position": (-210.0, 470.0, -260.0)},
+    {"name": "Sensorischer Cortex",   "color": (0.180, 0.800, 0.443), "position": (210.0, 470.0, -130.0)},
+    {"name": "Hippocampus",           "color": (0.953, 0.612, 0.071), "position": (-340.0, 0.0, 130.0)},
+    {"name": "Kleinhirn",             "color": (0.608, 0.349, 0.714), "position": (280.0, -150.0, 470.0)},
+    {"name": "Nucleus Accumbens",     "color": (0.102, 0.737, 0.612), "position": (75.0, 225.0, -300.0)},
+    {"name": "Broca-Areal",           "color": (0.902, 0.494, 0.133), "position": (-260.0, 210.0, -340.0)},
+    {"name": "Visueller Cortex",      "color": (0.557, 0.267, 0.678), "position": (210.0, 130.0, 470.0)},
+    {"name": "Thalamus",              "color": (0.086, 0.627, 0.522), "position": (0.0, 260.0, 75.0)},
+    {"name": "Stammhirn",             "color": (0.584, 0.647, 0.651), "position": (0.0, -420.0, 340.0)},
+    {"name": "Basalganglien",         "color": (0.827, 0.329, 0.000), "position": (-225.0, 150.0, -120.0)},
+    {"name": "Amygdala",              "color": (0.753, 0.224, 0.169), "position": (-150.0, -95.0, -210.0)},
 ]
 
 COMMUNITY_TO_REGION = {

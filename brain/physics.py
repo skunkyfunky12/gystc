@@ -50,11 +50,11 @@ class PhysicsSimulation:
         region_centers: np.ndarray,
         node_regions: np.ndarray,
         *,
-        center_strength: float = 0.005,
-        repel_strength: float = 8.0,
-        link_strength: float = 0.6,
-        link_distance: float = 60.0,
-        region_gravity: float = 0.10,
+        center_strength: float = 0.002,
+        repel_strength: float = 12.0,
+        link_strength: float = 0.3,
+        link_distance: float = 80.0,
+        region_gravity: float = 0.35,
         damping: float = 0.95,
     ) -> None:
         self._positions = np.array(positions, dtype=np.float64)   # work in f64 for stability
