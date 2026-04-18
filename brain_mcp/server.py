@@ -11,6 +11,7 @@ from brain_mcp.storage.database import BrainDB
 from brain_mcp.tools.recent import handle_brain_recent
 from brain_mcp.tools.regions import handle_brain_regions
 from brain_mcp.tools.retrieve import handle_brain_retrieve
+from brain_mcp.tools.store import handle_brain_store
 
 @dataclass
 class BrainState:
@@ -74,3 +75,25 @@ def brain_retrieve(query: str, region: str | None = None, limit: int = 10, thres
     if state.embedder is None:
         return [{"error": "Embedding model not available"}]
     return handle_brain_retrieve(state.db, state.vectors, state.embedder, query=query, region=region, limit=limit, threshold=threshold)
+
+@mcp.tool()
+def brain_store(title: str, content: str, region: str | None = None, region_idx: int | None = None,
+                tags: list[str] | None = None, folder: str = "") -> dict:
+    """Create or update a note in the vault.
+
+    Args:
+        title: Note title (becomes filename)
+        content: Markdown content
+        region: Brain region name (auto-detected if omitted)
+        region_idx: Region index (overrides name)
+        tags: Additional tags (max 20)
+        folder: Subfolder in vault
+    """
+    state: BrainState = mcp.get_context().request_context.lifespan_context
+    if state.config.vault_path is None:
+        return {"error": "No vault_path configured"}
+    return handle_brain_store(
+        state.db, state.vectors, state.embedder, state.config.vault_path,
+        title=title, content=content, region=region, region_idx=region_idx,
+        tags=tags, folder=folder, pending_writes=getattr(state, '_pending_writes', {}),
+    )
