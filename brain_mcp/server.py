@@ -12,6 +12,7 @@ from brain_mcp.tools.recent import handle_brain_recent
 from brain_mcp.tools.regions import handle_brain_regions
 from brain_mcp.tools.retrieve import handle_brain_retrieve
 from brain_mcp.tools.store import handle_brain_store
+from brain_mcp.tools.related import handle_brain_related
 
 @dataclass
 class BrainState:
@@ -97,3 +98,15 @@ def brain_store(title: str, content: str, region: str | None = None, region_idx:
         title=title, content=content, region=region, region_idx=region_idx,
         tags=tags, folder=folder, pending_writes=getattr(state, '_pending_writes', {}),
     )
+
+@mcp.tool()
+def brain_related(title: str | None = None, path: str | None = None, limit: int = 10) -> list[dict] | dict:
+    """Find notes related to a specific note by meaning or backlinks.
+
+    Args:
+        title: Note title to find relations for
+        path: Note path (alternative to title)
+        limit: Max results (default 10, max 100)
+    """
+    state: BrainState = mcp.get_context().request_context.lifespan_context
+    return handle_brain_related(state.db, state.vectors, state.embedder, title=title, path=path, limit=limit)
