@@ -42,7 +42,7 @@ def cmd_serve(args):
 def cmd_config(args):
     from pathlib import Path
     from brain_mcp.config import (
-        BrainConfig, DEFAULT_MODEL, VALID_LOG_LEVELS,
+        BrainConfig, DEFAULT_MODEL, KNOWN_KEYS, VALID_LOG_LEVELS,
         load_config, save_config, validate_config,
     )
     from brain_mcp.tools.recent import REGION_NAMES
@@ -68,17 +68,23 @@ def cmd_config(args):
         print(f"  log_level         {config.log_level}")
         print("-" * 60)
         if config.db_path.exists():
-            from brain_mcp.storage.database import BrainDB
-            db = BrainDB(config.db_path)
-            notes = db.get_all_notes()
-            db.close()
-            print(f"  DB: {config.db_path} ({len(notes)} notes)")
+            try:
+                from brain_mcp.storage.database import BrainDB
+                db = BrainDB(config.db_path)
+                notes = db.get_all_notes()
+                db.close()
+                print(f"  DB: {config.db_path} ({len(notes)} notes)")
+            except Exception as e:
+                print(f"  DB: {config.db_path} (error reading: {e})")
         else:
             print(f"  DB: {config.db_path} (not created)")
         if config.index_path.exists():
-            from brain_mcp.indexer.vector_store import VectorStore
-            vs = VectorStore.load(config.index_path, dimension=384)
-            print(f"  Index: {config.index_path} ({vs.size} vectors)")
+            try:
+                from brain_mcp.indexer.vector_store import VectorStore
+                vs = VectorStore.load(config.index_path, dimension=384)
+                print(f"  Index: {config.index_path} ({vs.size} vectors)")
+            except Exception as e:
+                print(f"  Index: {config.index_path} (error reading: {e})")
         else:
             print(f"  Index: {config.index_path} (not created)")
 
@@ -88,6 +94,9 @@ def cmd_config(args):
             sys.exit(1)
         config = load_config()
         key, value = args.key, args.value
+        if value is None:
+            print(f"ERROR: Missing value. Usage: brain_mcp config set {key} <value>", file=sys.stderr)
+            sys.exit(1)
 
         if key == "vault_path":
             p = Path(value)
@@ -96,10 +105,10 @@ def cmd_config(args):
                 sys.exit(1)
             config.vault_path = p
         elif key == "model_name":
-            if not value:
+            if not value or not value.strip():
                 print("ERROR: model_name must not be empty", file=sys.stderr)
                 sys.exit(1)
-            config.model_name = value
+            config.model_name = value.strip()
         elif key in ("auto_index", "index_on_startup"):
             if value.lower() not in ("true", "false"):
                 print(f"ERROR: {key} must be true or false", file=sys.stderr)
@@ -126,7 +135,7 @@ def cmd_config(args):
             config.folder_to_region[folder] = idx
         else:
             print(f"ERROR: Unknown key: {key}", file=sys.stderr)
-            print(f"Valid keys: vault_path, model_name, auto_index, index_on_startup, folder_to_region, log_level", file=sys.stderr)
+            print(f"Valid keys: {', '.join(sorted(KNOWN_KEYS))}", file=sys.stderr)
             sys.exit(1)
 
         save_config(config)

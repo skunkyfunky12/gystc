@@ -133,8 +133,10 @@ class VectorStore:
         path = Path(path)
         if path.exists():
             try:
-                store._index = faiss.read_index(str(path))
-                # Recover next_id from the loaded index
+                loaded = faiss.read_index(str(path))
+                if loaded.d != dimension:
+                    raise ValueError(f"Dimension mismatch: file has {loaded.d}, expected {dimension}")
+                store._index = loaded
                 if store._index.ntotal > 0:
                     stored_ids = faiss.vector_to_array(store._index.id_map)
                     store._next_id = int(stored_ids.max()) + 1

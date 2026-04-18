@@ -59,7 +59,6 @@ def _handle_file_change(state: BrainState, path: str, event_type: str) -> None:
     if state.db.get_content_hash(rel) == note["content_hash"]:
         return
 
-    # Read old FAISS index before upsert to remove ghost vector
     old_row = state.db.get_note_by_path(rel)
     old_faiss_idx = old_row["faiss_idx"] if old_row and old_row["faiss_idx"] is not None else None
 
@@ -71,10 +70,11 @@ def _handle_file_change(state: BrainState, path: str, event_type: str) -> None:
     )
     try:
         vec = state.embedder.embed([note["content"]])
-        if old_faiss_idx is not None:
-            state.vectors.remove([old_faiss_idx])
         faiss_ids = state.vectors.add(vec)
         state.db.set_faiss_idx(note_id, faiss_ids[0])
+        # Only remove old vector after new one is established
+        if old_faiss_idx is not None:
+            state.vectors.remove([old_faiss_idx])
         print(f"Re-indexed: {rel}", file=sys.stderr)
     except Exception as exc:
         print(f"Embedding error for {rel}: {exc}", file=sys.stderr)
@@ -221,16 +221,25 @@ def brain_reindex(force: bool = False) -> dict:
     if state.config.vault_path is None or not state.config.vault_path.is_dir():
         return {"error": "No vault_path configured or directory not found"}
     t0 = time.time()
-    count = index_vault(state.db, state.vectors, state.embedder,
-                        state.config.vault_path, state.config.folder_to_region, force=force)
+    try:
+        count = index_vault(state.db, state.vectors, state.embedder,
+                            state.config.vault_path, state.config.folder_to_region, force=force)
+    except Exception as exc:
+        print(f"ERROR: Reindex failed: {exc}", file=sys.stderr)
+        return {"error": f"Reindex failed during indexing: {exc}", "indexed": 0}
+    save_warning = None
     try:
         state.vectors.save(state.config.index_path)
     except Exception as exc:
+        save_warning = str(exc)
         print(f"ERROR: Failed to save index after reindex: {exc}", file=sys.stderr)
     total = len(state.db.get_all_notes())
     elapsed = round(time.time() - t0, 1)
     print(f"Reindex complete: {count} new/changed, {total} total in {elapsed}s", file=sys.stderr)
-    return {"indexed": count, "total": total, "elapsed_seconds": elapsed}
+    result = {"indexed": count, "total": total, "elapsed_seconds": elapsed}
+    if save_warning:
+        result["warning"] = f"Index not persisted to disk: {save_warning}"
+    return result
 
 # ---------------------------------------------------------------------------
 # MCP Resources

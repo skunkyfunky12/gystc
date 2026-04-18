@@ -57,11 +57,15 @@ def validate_config(config: BrainConfig) -> list[str]:
 
 
 def save_config(config: BrainConfig, path: Path | None = None) -> Path:
+    errors = validate_config(config)
+    if errors:
+        print(f"WARNING: Config has validation issues: {'; '.join(errors)}", file=sys.stderr)
     config.data_dir.mkdir(parents=True, exist_ok=True)
     config_file = path or config.config_path
     data = {
         "vault_path": str(config.vault_path) if config.vault_path else None,
         "model_name": config.model_name,
+        "embedding_backend": config.embedding_backend,
         "auto_index": config.auto_index,
         "index_on_startup": config.index_on_startup,
         "folder_to_region": config.folder_to_region,
@@ -73,7 +77,7 @@ def save_config(config: BrainConfig, path: Path | None = None) -> Path:
             json.dump(data, f, indent=4, ensure_ascii=False)
             f.write("\n")
         Path(tmp).replace(config_file)
-    except BaseException:
+    except Exception:
         Path(tmp).unlink(missing_ok=True)
         raise
     return config_file
