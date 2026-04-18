@@ -42,7 +42,7 @@ def _handle_file_change(state: BrainState, path: str, event_type: str) -> None:
     try:
         rel = str(Path(path).relative_to(state.config.vault_path)).replace("\\", "/")
     except ValueError:
-        return
+        return  # File outside vault scope
     if event_type == "deleted":
         # Remove FAISS vector before deleting the note
         old_row = state.db.get_note_by_path(rel)
@@ -75,9 +75,9 @@ def _handle_file_change(state: BrainState, path: str, event_type: str) -> None:
             state.vectors.remove([old_faiss_idx])
         faiss_ids = state.vectors.add(vec)
         state.db.set_faiss_idx(note_id, faiss_ids[0])
+        print(f"Re-indexed: {rel}", file=sys.stderr)
     except Exception as exc:
         print(f"Embedding error for {rel}: {exc}", file=sys.stderr)
-    print(f"Re-indexed: {rel}", file=sys.stderr)
 
 
 @asynccontextmanager
@@ -94,7 +94,11 @@ async def brain_lifespan(server: FastMCP) -> AsyncIterator[BrainState]:
     # Startup indexing
     vault_exists = config.vault_path is not None and config.vault_path.is_dir()
     if vault_exists and config.index_on_startup:
-        _index_vault(state)
+        try:
+            _index_vault(state)
+        except Exception as exc:
+            print(f"ERROR: Startup indexing failed: {exc}", file=sys.stderr)
+            print("Server will start without pre-indexed vault data.", file=sys.stderr)
 
     # File watcher
     if vault_exists and config.auto_index:
@@ -107,8 +111,14 @@ async def brain_lifespan(server: FastMCP) -> AsyncIterator[BrainState]:
     finally:
         if state.watcher is not None:
             state.watcher.stop()
-        vectors.save(config.index_path)
-        db.close()
+        try:
+            vectors.save(config.index_path)
+        except Exception as exc:
+            print(f"ERROR: Failed to save FAISS index: {exc}", file=sys.stderr)
+        try:
+            db.close()
+        except Exception as exc:
+            print(f"ERROR: Failed to close database: {exc}", file=sys.stderr)
         print("Brain MCP Server stopped.", file=sys.stderr)
 
 mcp = FastMCP("Neural Brain", lifespan=brain_lifespan)

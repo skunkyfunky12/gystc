@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import threading
 import time
+import traceback
 from pathlib import Path
 from typing import Callable
 
@@ -44,7 +45,7 @@ class _Handler(FileSystemEventHandler):
         try:
             self._on_change(path, event_type)
         except Exception as exc:
-            print(f"Watcher callback error for {path}: {exc}", file=sys.stderr)
+            print(f"Watcher callback error for {path}: {exc}\n{traceback.format_exc()}", file=sys.stderr)
 
     def on_created(self, event: FileCreatedEvent) -> None:
         if not event.is_directory and event.src_path.endswith(".md"):
@@ -61,6 +62,8 @@ class _Handler(FileSystemEventHandler):
             self._dispatch(event.src_path, "deleted")
 
     def on_moved(self, event: FileMovedEvent) -> None:
+        if event.is_directory:
+            return
         if event.src_path.endswith(".md"):
             self._dispatch(event.src_path, "deleted")
         if event.dest_path.endswith(".md"):
