@@ -5,6 +5,7 @@ import json
 import threading
 from functools import partial
 from http.server import HTTPServer, SimpleHTTPRequestHandler, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
 from pathlib import Path
 
 import numpy as np
@@ -19,9 +20,163 @@ _WEB_DIR = Path(__file__).parent / "web"
 ACTIVITY_PORT = 9500
 
 
+CONFIG_API_MAX_BODY = 8192
+
+
+def _make_web_handler(directory: Path):
+    """HTTP handler that serves static files AND a /api/config endpoint."""
+
+    class WebHandler(SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(directory), **kwargs)
+
+        def do_GET(self):
+            if self.path == "/api/config":
+                self._handle_config_get()
+            elif self.path == "/api/stats":
+                self._handle_stats_get()
+            else:
+                super().do_GET()
+
+        def do_POST(self):
+            if self.path == "/api/config":
+                self._handle_config_post()
+            elif self.path == "/api/reindex":
+                self._handle_reindex()
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def _handle_config_get(self):
+            try:
+                from brain_mcp.config import load_config
+                config = load_config()
+                data = {
+                    "vault_path": str(config.vault_path) if config.vault_path else None,
+                    "model_name": config.model_name,
+                    "auto_index": config.auto_index,
+                    "index_on_startup": config.index_on_startup,
+                    "folder_to_region": config.folder_to_region,
+                    "log_level": config.log_level,
+                }
+                self._json_response(200, data)
+            except Exception as e:
+                self._json_response(500, {"error": str(e)})
+
+        def _handle_config_post(self):
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                if length == 0:
+                    self._json_response(400, {"error": "Empty request body"})
+                    return
+                if length > CONFIG_API_MAX_BODY:
+                    self._json_response(413, {"error": "Body too large"})
+                    return
+                body = self.rfile.read(length).decode("utf-8")
+                try:
+                    updates = json.loads(body)
+                except json.JSONDecodeError:
+                    self._json_response(400, {"error": "Invalid JSON"})
+                    return
+
+                from brain_mcp.config import load_config, save_config
+                config = load_config()
+
+                if "auto_index" in updates:
+                    config.auto_index = bool(updates["auto_index"])
+                if "index_on_startup" in updates:
+                    config.index_on_startup = bool(updates["index_on_startup"])
+                if "log_level" in updates and updates["log_level"] in ("DEBUG", "INFO", "WARNING", "ERROR"):
+                    config.log_level = updates["log_level"]
+
+                save_config(config)
+                self._json_response(200, {"ok": True})
+            except Exception as e:
+                self._json_response(500, {"error": str(e)})
+
+        def _handle_stats_get(self):
+            try:
+                from brain_mcp.config import load_config
+                config = load_config()
+                notes_count = 0
+                vectors_count = 0
+                edges_count = 0
+                if config.db_path.exists():
+                    import sqlite3
+                    conn = sqlite3.connect(str(config.db_path))
+                    try:
+                        cur = conn.cursor()
+                        notes_count = cur.execute("SELECT count(*) FROM notes").fetchone()[0]
+                        try:
+                            edges_count = cur.execute("SELECT count(*) FROM edges").fetchone()[0]
+                        except Exception:
+                            pass
+                    finally:
+                        conn.close()
+                if config.index_path.exists():
+                    try:
+                        from brain_mcp.indexer.vector_store import VectorStore
+                        vs = VectorStore.load(config.index_path, dimension=384)
+                        vectors_count = vs.size
+                    except Exception:
+                        pass
+                self._json_response(200, {
+                    "notes": notes_count,
+                    "vectors": vectors_count,
+                    "edges": edges_count,
+                    "regions": 12,
+                })
+            except Exception as e:
+                self._json_response(500, {"error": str(e)})
+
+        def _handle_reindex(self):
+            try:
+                from brain_mcp.config import load_config
+                from brain_mcp.storage.database import BrainDB
+                from brain_mcp.indexer.vector_store import VectorStore
+                from brain_mcp.indexer.embedder import SentenceTransformerBackend
+                from brain_mcp.indexer.pipeline import index_vault
+                import time
+
+                config = load_config()
+                if config.vault_path is None or not config.vault_path.is_dir():
+                    self._json_response(400, {"error": "No vault_path configured"})
+                    return
+                db = BrainDB(config.db_path)
+                try:
+                    embedder = SentenceTransformerBackend(config.model_name)
+                    vectors = VectorStore.load(config.index_path, dimension=embedder.dimension)
+                    t0 = time.time()
+                    count = index_vault(db, vectors, embedder, config.vault_path, config.folder_to_region)
+                    vectors.save(config.index_path)
+                    elapsed = round(time.time() - t0, 1)
+                    self._json_response(200, {"indexed": count, "elapsed": elapsed})
+                finally:
+                    db.close()
+            except Exception as e:
+                self._json_response(500, {"error": str(e)})
+
+        def _json_response(self, code, data):
+            body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, fmt, *args):
+            pass  # Suppress HTTP request logs
+
+    return WebHandler
+
+
+class _ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+
+
 def _start_local_server(directory: Path, port: int = 0) -> tuple[HTTPServer, int]:
-    handler = partial(SimpleHTTPRequestHandler, directory=str(directory))
-    server = HTTPServer(("127.0.0.1", port), handler)
+    handler = _make_web_handler(directory)
+    server = _ThreadingHTTPServer(("127.0.0.1", port), handler)
     actual_port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

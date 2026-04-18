@@ -1055,6 +1055,176 @@ const tweaksPanel = document.getElementById('tweaks-panel');
 document.getElementById('btn-tweaks').addEventListener('click', () => tweaksPanel.classList.toggle('visible'));
 document.getElementById('tweaks-close').addEventListener('click', () => tweaksPanel.classList.remove('visible'));
 
+// ============ SETTINGS PANEL ============
+const settingsPanel = document.getElementById('settings-panel');
+const settingsBackdrop = document.getElementById('settings-backdrop');
+
+function openSettings() {
+  settingsPanel.classList.add('visible');
+  settingsBackdrop.classList.add('visible');
+  loadSettings();
+}
+function closeSettings() {
+  settingsPanel.classList.remove('visible');
+  settingsBackdrop.classList.remove('visible');
+}
+
+document.getElementById('btn-settings').addEventListener('click', openSettings);
+document.getElementById('settings-close').addEventListener('click', closeSettings);
+settingsBackdrop.addEventListener('click', closeSettings);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && settingsPanel.classList.contains('visible')) closeSettings();
+});
+
+const SETTINGS_REGION_NAMES = [
+  'Praefrontaler Cortex','Motorischer Cortex','Sensorischer Cortex',
+  'Hippocampus','Kleinhirn','Nucleus Accumbens','Broca-Areal',
+  'Visueller Cortex','Thalamus','Stammhirn','Basalganglien','Amygdala',
+];
+
+function buildMappingRow(folder, idx) {
+  const regionName = SETTINGS_REGION_NAMES[idx] || `Region ${idx}`;
+  const color = PALETTES[state.palette][idx] || '#5EE9F0';
+  const row = document.createElement('div');
+  row.className = 'mapping-row';
+
+  const dot = document.createElement('span');
+  dot.className = 'mapping-dot';
+  dot.style.background = color;
+  dot.style.boxShadow = `0 0 6px ${color}`;
+
+  const folderSpan = document.createElement('span');
+  folderSpan.className = 'mapping-folder';
+  folderSpan.textContent = folder;
+
+  const arrow = document.createElement('span');
+  arrow.className = 'mapping-arrow';
+  arrow.textContent = '\u2192';
+
+  const regionSpan = document.createElement('span');
+  regionSpan.className = 'mapping-region';
+  regionSpan.textContent = regionName;
+
+  row.append(dot, folderSpan, arrow, regionSpan);
+  return row;
+}
+
+async function loadSettings() {
+  try {
+    const [cfgRes, statsRes] = await Promise.all([
+      fetch('/api/config'),
+      fetch('/api/stats'),
+    ]);
+    if (!cfgRes.ok || !statsRes.ok) throw new Error('API error: ' + cfgRes.status);
+    const cfg = await cfgRes.json();
+    const stats = await statsRes.json();
+
+    // Vault path
+    const vaultEl = document.getElementById('cfg-vault-path');
+    if (cfg.vault_path) {
+      const parts = cfg.vault_path.replace(/[\\/]+/g, '/').split('/');
+      vaultEl.textContent = parts.length > 3
+        ? '.../' + parts.slice(-3).join('/')
+        : cfg.vault_path;
+      vaultEl.title = cfg.vault_path;
+    } else {
+      vaultEl.textContent = '(nicht konfiguriert)';
+      vaultEl.title = '';
+    }
+
+    // Model
+    document.getElementById('cfg-model').textContent = cfg.model_name || '\u2014';
+
+    // Toggles
+    document.getElementById('cfg-auto-index').checked = cfg.auto_index;
+    document.getElementById('cfg-index-startup').checked = cfg.index_on_startup;
+
+    // Log level
+    document.getElementById('cfg-log-level').value = cfg.log_level || 'INFO';
+
+    // Folder-to-region mapping
+    const mappingsEl = document.getElementById('cfg-mappings');
+    mappingsEl.replaceChildren();
+    const entries = Object.entries(cfg.folder_to_region || {});
+    if (entries.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'mapping-empty';
+      empty.textContent = 'Kein Mapping konfiguriert';
+      mappingsEl.appendChild(empty);
+    } else {
+      entries.sort((a, b) => a[0].localeCompare(b[0]));
+      for (const [folder, idx] of entries) {
+        mappingsEl.appendChild(buildMappingRow(folder, idx));
+      }
+    }
+
+    // Stats
+    document.getElementById('cfg-notes').textContent = stats.notes?.toLocaleString() || '0';
+    document.getElementById('cfg-vectors').textContent = stats.vectors?.toLocaleString() || '0';
+    document.getElementById('cfg-regions').textContent = stats.regions || '12';
+    document.getElementById('cfg-edges').textContent = stats.edges?.toLocaleString() || '0';
+  } catch (e) {
+    console.error('Settings load failed:', e);
+  }
+}
+
+async function saveSettingField(key, value, revertFn) {
+  try {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [key]: value }),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+  } catch (e) {
+    console.error('Settings save failed:', e);
+    if (revertFn) revertFn();
+  }
+}
+
+// Bind toggle switches
+document.getElementById('cfg-auto-index').addEventListener('change', (e) => {
+  const prev = !e.target.checked;
+  saveSettingField('auto_index', e.target.checked, () => { e.target.checked = prev; });
+});
+document.getElementById('cfg-index-startup').addEventListener('change', (e) => {
+  const prev = !e.target.checked;
+  saveSettingField('index_on_startup', e.target.checked, () => { e.target.checked = prev; });
+});
+document.getElementById('cfg-log-level').addEventListener('change', (e) => {
+  const prev = e.target.value;
+  saveSettingField('log_level', e.target.value, () => { e.target.value = prev; });
+});
+
+// Reindex button
+const reindexBtn = document.getElementById('cfg-reindex');
+const reindexBtnOriginal = reindexBtn.cloneNode(true);
+reindexBtn.addEventListener('click', async () => {
+  const statusEl = document.getElementById('cfg-reindex-status');
+  reindexBtn.classList.add('loading');
+  reindexBtn.textContent = 'Indexing...';
+  statusEl.textContent = '';
+  try {
+    const res = await fetch('/api/reindex', { method: 'POST' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (data.error) {
+      statusEl.textContent = 'Fehler: ' + data.error;
+      statusEl.style.color = 'var(--danger)';
+    } else {
+      statusEl.textContent = data.indexed + ' Notes indexiert in ' + data.elapsed + 's';
+      statusEl.style.color = 'var(--accent)';
+      loadSettings();
+    }
+  } catch (e) {
+    statusEl.textContent = 'Fehler: ' + e.message;
+    statusEl.style.color = 'var(--danger)';
+  } finally {
+    reindexBtn.classList.remove('loading');
+    reindexBtn.replaceChildren(...reindexBtnOriginal.cloneNode(true).childNodes);
+  }
+});
+
 // Detail panel
 const detailPanel = document.getElementById('detail-panel');
 const detailEmpty = document.getElementById('detail-empty');
