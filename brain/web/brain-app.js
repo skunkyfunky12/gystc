@@ -1,6 +1,6 @@
-// Bridge: accept real graph data from Python host
-window.__graphData = null;
-window.__onNodeClick = null;
+// Bridge: accept real graph data from Python host (set by QWebEngineScript before module load)
+window.__graphData = window.__graphData || null;
+window.__onNodeClick = window.__onNodeClick || null;
 
 // Neural Brain — interactive prototype
 // Synaptic + bioluminescent rendering using Three.js
@@ -53,6 +53,8 @@ const COMMUNITY_TO_REGION = [0,1,2,3,4,5,6,7, 7,7,10,10,8,8,10,11, 5,10,10,11,7,
 /* ========================================================================
    GENERATE GRAPH — realistic fake Obsidian vault
    ======================================================================== */
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
 function seededRandom(seed) {
   let s = seed | 0;
@@ -397,8 +399,8 @@ function buildStars(count) {
         v_bright = bright;
         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
         gl_Position = projectionMatrix * mvPosition;
-        float twinkle = 0.6 + 0.4 * sin(u_time * 1.2 + bright * 20.0);
-        gl_PointSize = (1.2 + bright * 1.8) * twinkle * (300.0 / -mvPosition.z);
+        float twinkle = 0.85 + 0.15 * sin(u_time * 0.3 + bright * 20.0);
+        gl_PointSize = (1.0 + bright * 1.4) * twinkle * (300.0 / -mvPosition.z);
       }
     `,
     fragmentShader: `
@@ -798,7 +800,7 @@ canvas.addEventListener('mousemove', (e) => {
     tooltip.style.left = (e.clientX - canvas.getBoundingClientRect().left) + 'px';
     tooltip.style.top = (e.clientY - canvas.getBoundingClientRect().top) + 'px';
     tooltip.innerHTML = `
-      <div class="t-title"><span class="t-dot" style="background:${regionColor};color:${regionColor}"></span>${n.title}</div>
+      <div class="t-title"><span class="t-dot" style="background:${regionColor};color:${regionColor}"></span>${esc(n.title)}</div>
       <div class="t-meta">GRAD ${n.degree} · ${n.wordCount} WÖRTER${n.hub ? ' · HUB' : ''}</div>
       <div class="t-region">${regionName}</div>
     `;
@@ -978,16 +980,25 @@ bindSlider('pulse-slider', 'pulse-val', (v) => {
   edgeMaterial.uniforms.u_pulseSpeed.value = v;
   persistTweaks({ pulseSpeed: v });
 });
+bindSlider('edge-slider', 'edge-val', (v) => {
+  state.edgeOpacity = v;
+  for (let i = 0; i < edgeAlphas.length; i++) edgeAlphas[i] = v;
+  edgeGeom.attributes.alpha.needsUpdate = true;
+  persistTweaks({ edgeOpacity: v });
+});
 
 // init slider UI values
+state.edgeOpacity = TWEAK_DEFAULTS.edgeOpacity || 0.35;
 document.getElementById('glow-slider').value = state.glow;
 document.getElementById('stars-slider').value = state.stars;
 document.getElementById('size-slider').value = state.nodeSize;
 document.getElementById('pulse-slider').value = state.pulseSpeed;
+document.getElementById('edge-slider').value = state.edgeOpacity;
 document.getElementById('glow-val').textContent = state.glow.toFixed(2);
 document.getElementById('stars-val').textContent = state.stars;
 document.getElementById('size-val').textContent = state.nodeSize.toFixed(2);
 document.getElementById('pulse-val').textContent = state.pulseSpeed.toFixed(2);
+document.getElementById('edge-val').textContent = state.edgeOpacity.toFixed(2);
 
 // Top buttons
 document.getElementById('btn-rotate').addEventListener('click', () => {
@@ -1064,7 +1075,7 @@ function renderDetail(node) {
         <span class="k-dot" style="background:${color};color:${color}"></span>
         ${r.name}
       </div>
-      <div class="detail-title">${node.title}</div>
+      <div class="detail-title">${esc(node.title)}</div>
       <div class="detail-meta">
         <span><strong>${node.degree}</strong>verbindungen</span>
         <span><strong>${node.wordCount}</strong>wörter</span>
@@ -1073,7 +1084,7 @@ function renderDetail(node) {
     </div>
     <div class="detail-section">
       <h3>Tags</h3>
-      <div class="tag-list">${node.tags.map(t => `<span class="tag">${t}</span>`).join('')}</div>
+      <div class="tag-list">${node.tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>
     </div>
     <div class="detail-section">
       <h3>Verknüpfte Notizen (${neighbors.length})</h3>
@@ -1082,7 +1093,7 @@ function renderDetail(node) {
           const nc = PALETTES[state.palette][nn.regionIdx];
           return `<div class="link-item" data-nid="${nn.id}">
             <span class="li-dot" style="background:${nc};color:${nc}"></span>
-            <span class="li-title">${nn.title}</span>
+            <span class="li-title">${esc(nn.title)}</span>
             <span class="li-arrow">→</span>
           </div>`;
         }).join('')}
@@ -1489,7 +1500,7 @@ function runClaudeQuery(query) {
       ]);
     } catch (err) {
       // Fallback if claude unavailable
-      const top = hits.slice(0, 3).map(n => `<span class="hl">${n.title}</span>`).join(', ');
+      const top = hits.slice(0, 3).map(n => `<span class="hl">${esc(n.title)}</span>`).join(', ');
       answer = `Basierend auf ${top} — ${REGIONS[hits[0].regionIdx].subtitle.toLowerCase()}.`;
     }
     thinkingLine.innerHTML = answer || '(keine Antwort)';
@@ -1621,16 +1632,24 @@ const maxT = Math.max(...graph.nodes.map(n => n.created.getTime()));
 tlSlider.addEventListener('input', () => {
   const k = +tlSlider.value / 100;
   const cutoff = minT + (maxT - minT) * k;
-  let visible = 0;
+  const nodeVisible = new Uint8Array(graph.nodes.length);
   for (let i = 0; i < graph.nodes.length; i++) {
     const v = graph.nodes[i].created.getTime() <= cutoff;
     nodeAlpha[i] = v ? 1.0 : 0.05;
-    if (v) visible++;
+    nodeVisible[i] = v ? 1 : 0;
   }
   nodeGeometry.attributes.alpha.needsUpdate = true;
+  for (let ei = 0; ei < graph.edges.length; ei++) {
+    const [a, b] = graph.edges[ei];
+    const vis = nodeVisible[a] && nodeVisible[b];
+    edgeAlphas[ei * 2] = vis ? 0.35 : 0.0;
+    edgeAlphas[ei * 2 + 1] = vis ? 0.35 : 0.0;
+  }
+  edgeGeom.attributes.alpha.needsUpdate = true;
   if (k >= 0.999) {
     tlNow.textContent = 'JETZT';
     tlNow.style.color = 'var(--accent)';
+    applyPaletteToEdges();
   } else {
     const d = new Date(cutoff);
     tlNow.textContent = d.toLocaleDateString('de-DE', { month: 'short', year: 'numeric' }).toUpperCase();
@@ -1656,17 +1675,22 @@ const bootTimer = setInterval(() => {
     clearInterval(bootTimer);
     bootEl.classList.add('hidden');
 
-    // Seed the Claude terminal with connection log
-    // Only auto-expand if we have enough horizontal room for terminal + right-column widgets
     if (window.innerWidth > 1100) claudeTerm.classList.add('expanded');
-    termLine('SYS', 'claude-code v2.1.0 · session <span class="hl">a7f3</span>', { tagClass: 'tag-mem', out: true });
-    termLine('MCP', 'connect graphify://vault · <span class="hl">OK</span>', { tagClass: 'tag-mem' });
-    termLine('SYS', `indexed <span class="hl">${graph.nodes.length}</span> nodes · <span class="hl">${graph.edges.length}</span> edges`, { tagClass: 'tag-mem', out: true });
+    termLine('SYS', `Neural Brain · <span class="hl">${graph.nodes.length}</span> nodes · <span class="hl">${graph.edges.length}</span> edges`, { tagClass: 'tag-mem', out: true });
+    termLine('SYS', 'Warte auf Claude Code Aktivität...', { tagClass: 'tag-mem', out: true });
 
-    setTimeout(() => {
-      // Demo query to showcase the intelligence layer
-      runClaudeQuery('Was weiß ich über Neural-Brain?');
-    }, 900);
+    // Global bridge: Python activity server pushes events here
+    window.addActivityLine = function(tag, text, tagClass) {
+      termLine(tag, text, { tagClass: tagClass || 'tag-tool', out: tag === 'CLAUDE' });
+      // Highlight node if file path matches a graph node
+      const match = graph.nodes.find(n => text.includes(n.title));
+      if (match) {
+        nodeRecency[match.id] = 1.0;
+        nodeUsage[match.id] = Math.min(nodeUsage[match.id] + 0.15, 1.0);
+        regionUsage[match.regionIdx] = Math.min(regionUsage[match.regionIdx] + 0.05, 1.0);
+      }
+    };
+    window.setTermStatus = function(state) { setCtStatus(state); };
   }
 }, 520);
 bootStatus.textContent = BOOT_STEPS[0];

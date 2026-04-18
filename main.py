@@ -6,6 +6,7 @@ import numpy as np
 from PyQt6.QtWidgets import QApplication, QMainWindow
 
 from data.loader import load_graph
+from data.vault_loader import load_vault
 from data.brain_layout import assign_initial_positions
 from data.regions import REGIONS, COMMUNITY_TO_REGION
 from brain.physics import PhysicsSimulation
@@ -32,20 +33,33 @@ def main():
     config_path = Path.home() / ".neural-brain" / "config.json"
     config = {}
     if config_path.exists():
-        config = json.loads(config_path.read_text(encoding="utf-8"))
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            print(f"ERROR: config.json ungültig: {e}")
+            print(f"Fix: {config_path}")
+            sys.exit(1)
 
     graph_path = config.get("graph_path", "graphify-out/graph.json")
     api_key = config.get("obsidian_api_key", "")
     vault_path = config.get("vault_path", "")
 
-    nodes, edges = load_graph(graph_path)
+    if vault_path:
+        vault_dir = Path(vault_path)
+        if not vault_dir.is_dir():
+            print(f"ERROR: vault_path '{vault_path}' existiert nicht.")
+            print(f"Fix: ~/.neural-brain/config.json → vault_path korrigieren oder leeren.")
+            sys.exit(1)
+        nodes, edges = load_vault(vault_path)
+    else:
+        nodes, edges = load_graph(graph_path)
     print(f"Loaded {len(nodes)} nodes, {len(edges)} edges")
 
     positions = assign_initial_positions(nodes)
 
     region_centers = np.array([r["position"] for r in REGIONS], dtype=np.float32)
     node_regions = np.array(
-        [COMMUNITY_TO_REGION.get(n.get("community", 0), 9) for n in nodes],
+        [n.get("region_idx", COMMUNITY_TO_REGION.get(n.get("community", 0), 9)) for n in nodes],
         dtype=np.int32,
     )
 
