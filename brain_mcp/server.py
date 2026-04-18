@@ -13,6 +13,7 @@ from brain_mcp.tools.regions import handle_brain_regions
 from brain_mcp.tools.retrieve import handle_brain_retrieve
 from brain_mcp.tools.store import handle_brain_store
 from brain_mcp.tools.related import handle_brain_related
+from brain_mcp.tools.context import handle_brain_context
 
 @dataclass
 class BrainState:
@@ -110,3 +111,19 @@ def brain_related(title: str | None = None, path: str | None = None, limit: int 
     """
     state: BrainState = mcp.get_context().request_context.lifespan_context
     return handle_brain_related(state.db, state.vectors, state.embedder, title=title, path=path, limit=limit)
+
+@mcp.tool()
+def brain_context(file_paths: list[str] | None = None, task_description: str | None = None,
+                  depth: int = 1, max_notes: int = 10) -> list[dict] | dict:
+    """Get contextually relevant notes for current work. Combines file proximity and semantic search.
+
+    Args:
+        file_paths: Files currently being edited
+        task_description: What you are doing
+        depth: Backlink graph hops 1-3 (default 1)
+        max_notes: Max notes returned (default 10, max 100)
+    """
+    state: BrainState = mcp.get_context().request_context.lifespan_context
+    return handle_brain_context(state.db, state.vectors, state.embedder,
+                                 file_paths=file_paths, task_description=task_description,
+                                 depth=depth, max_notes=max_notes)
