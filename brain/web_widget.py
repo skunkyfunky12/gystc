@@ -40,6 +40,8 @@ def _make_web_handler(directory: Path):
                 self._handle_config_get()
             elif self.path == "/api/stats":
                 self._handle_stats_get()
+            elif self.path.startswith("/api/vault/"):
+                self._handle_vault_file()
             else:
                 super().do_GET()
 
@@ -158,6 +160,47 @@ def _make_web_handler(directory: Path):
                     self._json_response(200, {"indexed": count, "elapsed": elapsed})
                 finally:
                     db.close()
+            except Exception as e:
+                self._json_response(500, {"error": str(e)})
+
+        _VAULT_MIME = {
+            ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+            ".gif": "image/gif", ".svg": "image/svg+xml", ".webp": "image/webp",
+            ".pdf": "application/pdf", ".md": "text/markdown; charset=utf-8",
+        }
+
+        def _handle_vault_file(self):
+            """Serve files from the Obsidian vault (images, attachments)."""
+            try:
+                from brain_mcp.config import load_config
+                config = load_config()
+                if not config.vault_path:
+                    self._json_response(400, {"error": "No vault configured"})
+                    return
+
+                import urllib.parse
+                rel = urllib.parse.unquote(self.path[len("/api/vault/"):])
+
+                # Path-traversal guard (CWE-22)
+                resolved = (config.vault_path / rel).resolve()
+                if not str(resolved).startswith(str(config.vault_path.resolve())):
+                    self.send_response(403)
+                    self.end_headers()
+                    return
+
+                if not resolved.is_file():
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+
+                suffix = resolved.suffix.lower()
+                mime = self._VAULT_MIME.get(suffix, "application/octet-stream")
+                data = resolved.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", mime)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
             except Exception as e:
                 self._json_response(500, {"error": str(e)})
 
@@ -306,6 +349,7 @@ class BrainWebWidget(QWebEngineView):
             pos = self._positions[i].tolist()
             nodes_data.append({
                 "title": title,
+                "source_file": source_file,
                 "regionIdx": int(region_idx),
                 "pos": pos,
                 "tags": [f"#brain/{REGIONS[region_idx]['name'].lower().replace(' ', '-')}"],

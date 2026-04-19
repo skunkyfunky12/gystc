@@ -373,6 +373,113 @@ def brain_classify_feedback(
         path=path, correct_region_idx=correct_region_idx, reason=reason,
     )
 
+@mcp.tool()
+def brain_autolink(project_subfolder: str, dry_run: bool = True) -> dict:
+    """Auto-link graphify notes to parent documentation.
+
+    Reads _autolink.json from a project's graphify folder, then:
+    1. Adds Dokumentation backlinks FROM graphify notes TO main docs
+    2. Updates Code-Referenzen IN main docs with new graphify notes
+
+    Args:
+        project_subfolder: Vault subfolder (e.g. "02 Projekte/D2D-Scout")
+        dry_run: If True, only show what would change without writing
+    """
+    import re as _re
+    state: BrainState = mcp.get_context().request_context.lifespan_context
+    vault = state.config.vault_path
+    graphify_dir = vault / project_subfolder / "graphify"
+    config_path = graphify_dir / "_autolink.json"
+
+    if not config_path.exists():
+        return {"error": f"No _autolink.json in {graphify_dir}"}
+
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    rules = config["rules"]
+    doc_folder = vault / config["doc_folder"]
+
+    doc_notes: dict[str, list[str]] = {r["doc"]: [] for r in rules}
+    notes_linked = 0
+    refs_added = 0
+
+    # Phase 1: Match graphify notes to docs
+    for note_path in sorted(graphify_dir.glob("*.md")):
+        if note_path.name.startswith("_"):
+            continue
+        note_name = note_path.stem
+        # Read source_file from frontmatter
+        text = note_path.read_text(encoding="utf-8")
+        source = ""
+        if text.startswith("---"):
+            try:
+                end = text.index("---", 3)
+                for line in text[3:end].split("\n"):
+                    if line.startswith("source_file:"):
+                        source = line.split(":", 1)[1].strip().strip('"').strip("'")
+            except ValueError:
+                pass
+
+        matched_doc = None
+        for rule in rules:
+            for pattern in rule["patterns"]:
+                if pattern.lower() in note_name.lower() or pattern.lower() in source.lower():
+                    matched_doc = rule["doc"]
+                    break
+            if matched_doc:
+                break
+
+        if matched_doc:
+            doc_notes[matched_doc].append(note_name)
+            link = f"[[{matched_doc}]]"
+            if link not in text:
+                notes_linked += 1
+                if not dry_run:
+                    doc_line = f"\n## Dokumentation\n- {link}\n"
+                    lines = text.split("\n")
+                    insert_idx = len(lines)
+                    for i, line in enumerate(lines):
+                        if line.startswith("#graphify/") or line.startswith("#brain/"):
+                            insert_idx = i
+                            break
+                    lines.insert(insert_idx, doc_line.strip())
+                    note_path.write_text("\n".join(lines), encoding="utf-8")
+
+    # Phase 2: Update Code-Referenzen in main docs
+    for doc_name, notes in doc_notes.items():
+        if not notes:
+            continue
+        doc_path = doc_folder / f"{doc_name}.md"
+        if not doc_path.exists():
+            continue
+        text = doc_path.read_text(encoding="utf-8")
+        if "## Code-Referenzen" not in text:
+            continue
+
+        ref_section = text.split("## Code-Referenzen")[1].split("\n#")[0]
+        existing = set(_re.findall(r"\[\[([^\]]+)\]\]", ref_section))
+
+        new_notes = [n for n in notes if n not in existing and not n.startswith("_")]
+        if new_notes and not dry_run:
+            lines = text.split("\n")
+            for i, line in enumerate(lines):
+                if line.startswith("#brain/") and i > 0:
+                    for note in sorted(new_notes):
+                        lines.insert(i, f"- [[{note}]]")
+                        i += 1
+                        refs_added += 1
+                    break
+            doc_path.write_text("\n".join(lines), encoding="utf-8")
+        else:
+            refs_added += len(new_notes)
+
+    return {
+        "dry_run": dry_run,
+        "docs_with_matches": {k: len(v) for k, v in doc_notes.items() if v},
+        "notes_needing_doc_link": notes_linked,
+        "refs_to_add": refs_added,
+        "total_graphify_notes": sum(1 for _ in graphify_dir.glob("*.md") if not _.name.startswith("_")),
+    }
+
 # ---------------------------------------------------------------------------
 # MCP Resources
 # ---------------------------------------------------------------------------

@@ -862,8 +862,8 @@ const edgeMaterial = new THREE.ShaderMaterial({
       float activation = smoothstep(0.75, 1.0, v_alpha);
       float phase = u_time * u_pulseSpeed * 0.55 + v_edgeId * 0.13;
       float pulse = smoothstep(0.12, 0.0, abs(fract(phase) - v_t)) * activation;
-      float alpha = v_alpha + pulse * 0.5;
-      vec3 col = v_color * (1.0 + pulse * 1.2);
+      float alpha = min(v_alpha + pulse * 0.5, 1.0);
+      vec3 col = min(v_color * (1.0 + pulse * 1.2), 1.0);
       gl_FragColor = vec4(col, alpha);
     }
   `,
@@ -883,7 +883,9 @@ graph.edges.forEach((e, i) => {
 
 /* ---------- POSTPROCESSING (bloom for bioluminescence) ---------- */
 
-const composer = new EffectComposer(renderer);
+// HalfFloat render target prevents black-block artifacts from additive blending overflow
+const hdrRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
+const composer = new EffectComposer(renderer, hdrRT);
 composer.addPass(new RenderPass(scene, camera));
 const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.55, 0.7, 0.35);
 bloomPass.strength = state.bloom;
@@ -1202,7 +1204,7 @@ document.getElementById('intra-slider').value = state.intraOnly ? 1 : 0;
 applyEdgeFilters();
 document.getElementById('glow-val').textContent = state.glow.toFixed(2);
 document.getElementById('stars-val').textContent = state.stars;
-document.getElementById('size-val').textContent = state.nodeSize.toFixed(2);
+document.getElementById('size-val').textContent = state.nodeSize.toFixed(1);
 document.getElementById('pulse-val').textContent = state.pulseSpeed.toFixed(2);
 document.getElementById('bloom-val').textContent = state.bloom.toFixed(2);
 document.getElementById('bloom-radius-val').textContent = state.bloomRadius.toFixed(2);
@@ -1515,11 +1517,13 @@ function searchNodes(query) {
     const title = n.title.toLowerCase();
     const tagStr = (n.tags || []).join(' ').toLowerCase();
     const region = REGIONS[n.regionIdx].name.toLowerCase();
+    const path = (n.source_file || '').toLowerCase();
     let score = 0;
     for (const t of tokens) {
       if (title === t) score += 5;
       else if (title.startsWith(t)) score += 3;
       else if (title.includes(t)) score += 2;
+      if (path.includes(t)) score += 1.5;
       if (tagStr.includes(t)) score += 1;
       if (region.includes(t)) score += 0.5;
     }
