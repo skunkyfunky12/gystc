@@ -835,9 +835,9 @@ const edgeMaterial = new THREE.ShaderMaterial({
       float active = texture2D(u_activeEdges, vec2(texU, 0.5)).r;
       float hl = texture2D(u_highlightEdges, vec2(texU, 0.5)).r;
 
-      // Base: very dim dormant structure (just barely visible)
-      float baseAlpha = v_alpha * 0.08;
-      vec3 baseCol = v_color * 0.08;
+      // Base: dim dormant structure (visible but subdued)
+      float baseAlpha = v_alpha * 0.25;
+      vec3 baseCol = v_color * 0.18;
 
       // Traveling signal pulse — ONLY on active edges
       float phase = u_time * u_pulseSpeed * 0.55 + v_edgeId * 0.13;
