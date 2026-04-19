@@ -327,6 +327,8 @@ const state = {
   stars: TWEAK_DEFAULTS.stars,
   nodeSize: TWEAK_DEFAULTS.nodeSize,
   pulseSpeed: TWEAK_DEFAULTS.pulseSpeed,
+  bloom: TWEAK_DEFAULTS.bloom != null ? TWEAK_DEFAULTS.bloom : 0.55,
+  bloomRadius: TWEAK_DEFAULTS.bloomRadius != null ? TWEAK_DEFAULTS.bloomRadius : 0.7,
   autoRotate: true,
   activeRegion: null,       // filtering
   hoverId: null,
@@ -465,8 +467,9 @@ function buildStars(count) {
         vec2 uv = gl_PointCoord - 0.5;
         float d = length(uv);
         if (d > 0.5) discard;
-        float a = smoothstep(0.5, 0.0, d) * v_bright * 0.9;
-        vec3 c = mix(vec3(0.75, 0.85, 1.0), vec3(0.55, 0.75, 1.0), v_bright);
+        float falloff = pow(smoothstep(0.5, 0.0, d), 1.6);
+        float a = falloff * v_bright * 0.75;
+        vec3 c = mix(vec3(0.88, 0.91, 0.96), vec3(0.78, 0.85, 0.95), v_bright);
         gl_FragColor = vec4(c, a);
       }
     `,
@@ -591,13 +594,18 @@ const nodeMaterial = new THREE.ShaderMaterial({
       float dendrite = rays * smoothstep(0.5, 0.18, d) * smoothstep(0.12, 0.25, d) * 0.22;
       float ring = smoothstep(0.42, 0.4, d) * smoothstep(0.35, 0.37, d);
       float confHalo = smoothstep(0.5, 0.4, d) * v_conf * 0.08;
-      // Firing bloom: bright flash when recently activated — strong enough to notice
-      float actBloom = smoothstep(0.5, 0.0, d) * v_act * 3.0;
-      float actCore = smoothstep(0.25, 0.0, d) * v_act * 4.0;
-      float actOuter = smoothstep(0.5, 0.2, d) * v_act * 1.2;
-      vec3 col = v_color * (core * 1.4 + soma * 1.8 + halo * 0.1 * u_glow + dendrite + ring * 0.22 + confHalo + actBloom + actCore + actOuter);
-      col += vec3(1.0, 1.0, 0.85) * (actCore * 0.8 + actBloom * 0.4);
-      float a = (core * 1.0 + soma * 0.7 + halo * 0.1 * u_glow + dendrite * 0.7 + confHalo * 0.2 + actBloom * 1.0 + actCore * 1.0 + actOuter * 0.6) * v_alpha * min(v_pulse, 1.15);
+
+      // Fresnel-Rim: thin bright edge for spherical appearance
+      float rim = smoothstep(0.5, 0.46, d) * smoothstep(0.4, 0.46, d) * 0.55;
+
+      // Smooth activation curve instead of linear — no harsh pixel flash
+      float actSmooth = v_act * v_act * (3.0 - 2.0 * v_act);
+      float actBloom = smoothstep(0.5, 0.05, d) * actSmooth * 0.95;
+      float actCore  = smoothstep(0.3, 0.0, d)  * actSmooth * 1.3;
+
+      vec3 col = v_color * (core * 1.4 + soma * 1.8 + halo * 0.1 * u_glow + dendrite + ring * 0.22 + confHalo + rim + actBloom + actCore);
+      col += vec3(1.0, 1.0, 0.92) * (actCore * 0.4 + actBloom * 0.18 + rim * 0.15);
+      float a = (core * 1.0 + soma * 0.7 + halo * 0.1 * u_glow + dendrite * 0.7 + confHalo * 0.2 + rim * 0.6 + actBloom * 0.85 + actCore * 0.7) * v_alpha * min(v_pulse, 1.15);
       gl_FragColor = vec4(col, a);
     }
   `,
@@ -877,7 +885,9 @@ graph.edges.forEach((e, i) => {
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.25, 0.4, 0.75);
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.55, 0.7, 0.35);
+bloomPass.strength = state.bloom;
+bloomPass.radius = state.bloomRadius;
 composer.addPass(bloomPass);
 composer.addPass(new OutputPass());
 
@@ -1112,7 +1122,6 @@ function bindSlider(sliderId, valId, callback) {
 bindSlider('glow-slider', 'glow-val', (v) => {
   state.glow = v;
   nodeMaterial.uniforms.u_glow.value = v;
-  bloomPass.strength = 0.1 + v * 0.35;
   persistTweaks({ glow: v });
 });
 bindSlider('stars-slider', 'stars-val', (v) => {
@@ -1129,6 +1138,16 @@ bindSlider('pulse-slider', 'pulse-val', (v) => {
   state.pulseSpeed = v;
   edgeMaterial.uniforms.u_pulseSpeed.value = v;
   persistTweaks({ pulseSpeed: v });
+});
+bindSlider('bloom-slider', 'bloom-val', (v) => {
+  state.bloom = v;
+  bloomPass.strength = v;
+  persistTweaks({ bloom: v });
+});
+bindSlider('bloom-radius-slider', 'bloom-radius-val', (v) => {
+  state.bloomRadius = v;
+  bloomPass.radius = v;
+  persistTweaks({ bloomRadius: v });
 });
 bindSlider('edge-slider', 'edge-val', (v) => {
   state.edgeOpacity = v;
@@ -1178,6 +1197,8 @@ document.getElementById('glow-slider').value = state.glow;
 document.getElementById('stars-slider').value = state.stars;
 document.getElementById('size-slider').value = state.nodeSize;
 document.getElementById('pulse-slider').value = state.pulseSpeed;
+document.getElementById('bloom-slider').value = state.bloom;
+document.getElementById('bloom-radius-slider').value = state.bloomRadius;
 document.getElementById('edge-slider').value = state.edgeOpacity;
 document.getElementById('edgerange-slider').value = state.edgeRange;
 document.getElementById('edgewidth-slider').value = TWEAK_DEFAULTS.edgeWidth || 1.0;
@@ -1189,6 +1210,8 @@ document.getElementById('glow-val').textContent = state.glow.toFixed(2);
 document.getElementById('stars-val').textContent = state.stars;
 document.getElementById('size-val').textContent = state.nodeSize.toFixed(2);
 document.getElementById('pulse-val').textContent = state.pulseSpeed.toFixed(2);
+document.getElementById('bloom-val').textContent = state.bloom.toFixed(2);
+document.getElementById('bloom-radius-val').textContent = state.bloomRadius.toFixed(2);
 document.getElementById('edge-val').textContent = state.edgeOpacity.toFixed(2);
 document.getElementById('edgerange-val').textContent = Math.round(state.edgeRange * 100) + '%';
 document.getElementById('intra-val').textContent = state.intraOnly ? 'AN' : 'AUS';
