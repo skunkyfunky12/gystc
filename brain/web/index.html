@@ -79,7 +79,7 @@
     border-radius: 6px; color: var(--ink-1);
     font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em;
     display: inline-flex; align-items: center; gap: 6px;
-    cursor: pointer; transition: all .15s ease;
+    cursor: pointer; transition: border-color .15s ease, color .15s ease, background .15s ease;
   }
   .btn:hover { border-color: var(--line-2); color: var(--ink-0); background: rgba(255,255,255,0.02); }
   .btn.primary { border-color: rgba(94, 233, 240, 0.35); color: var(--accent); }
@@ -136,15 +136,12 @@
   /* ============ CANVAS ============ */
   .canvas-wrap {
     grid-area: canvas; position: relative;
-    background: radial-gradient(ellipse at 50% 50%, #0A1020 0%, #050709 70%);
+    background: #05070B;
     overflow: hidden;
   }
   #three-canvas { position: absolute; inset: 0; }
 
-  .vignette { position: absolute; inset: 0; pointer-events: none;
-    background: radial-gradient(ellipse at 50% 50%, transparent 40%, rgba(0,0,0,0.55) 100%);
-    z-index: 2;
-  }
+  .vignette { display: none; /* vignette handled by scene.fog instead — avoids compositor layer */ }
 
   .hud-tl, .hud-tr, .hud-bl, .hud-br {
     position: absolute; pointer-events: none;
@@ -171,10 +168,9 @@
   /* Tooltip */
   .tooltip {
     position: absolute; z-index: 5; pointer-events: none;
-    background: rgba(10, 14, 21, 0.96); border: 1px solid var(--line-2);
+    background: rgba(10, 14, 21, 0.97); border: 1px solid var(--line-2);
     border-radius: 6px; padding: 8px 10px;
     font-size: 11px; color: var(--ink-0);
-    backdrop-filter: blur(10px);
     transform: translate(12px, 12px);
     max-width: 260px;
     display: none;
@@ -187,12 +183,12 @@
 
   /* Region overlay labels */
   .region-label {
-    position: absolute; z-index: 3; pointer-events: none;
+    position: absolute; left: 0; top: 0; z-index: 3; pointer-events: none;
     font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
     color: var(--ink-1); text-transform: uppercase;
     white-space: nowrap;
-    transform: translate(-50%, -50%);
     opacity: 0; transition: opacity .3s ease;
+    will-change: transform;
   }
   .region-label.visible { opacity: 1; }
   .region-label .rl-line { display: block; height: 1px; width: 24px; background: currentColor; margin-bottom: 4px; opacity: 0.4; }
@@ -203,19 +199,20 @@
 
   /* Memory HUD + minimap + timeline + boot */
   .memhud { position: absolute; top: 264px; left: 16px; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; pointer-events: none; max-width: 300px; }
-  .memhud .chip { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 10px; border: 1px solid var(--line-2); background: rgba(10,14,21,0.7); backdrop-filter: blur(8px); border-radius: 12px; color: var(--ink-1); }
+  .memhud .chip { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 10px; border: 1px solid var(--line-2); background: rgba(10,14,21,0.92); border-radius: 12px; color: var(--ink-1); }
   .memhud .chip.active { color: var(--accent); border-color: rgba(94,233,240,0.4); box-shadow: 0 0 12px rgba(94,233,240,0.2); }
   .memhud .chip .pulse-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 6px; box-shadow: 0 0 8px var(--accent); animation: blink 1.2s ease-in-out infinite; }
   @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-  .minimap { position: absolute; top: 160px; right: 14px; width: 132px; height: 132px; background: rgba(5,7,11,0.82); border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; z-index: 5; backdrop-filter: blur(8px); }
+  .minimap { position: absolute; top: 160px; right: 14px; width: 132px; height: 132px; background: rgba(5,7,11,0.95); border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; z-index: 5; }
   .minimap canvas { display: block; width: 100%; height: 100%; }
   .minimap-label { position: absolute; top: 5px; left: 7px; font-family: var(--mono); font-size: 9px; color: var(--ink-2); letter-spacing: 0.14em; text-transform: uppercase; pointer-events: none; }
-  .timeline { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); width: min(540px, 80%); background: rgba(10,14,21,0.82); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; z-index: 5; backdrop-filter: blur(10px); }
+  .timeline { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); width: min(540px, 80%); background: rgba(10,14,21,0.95); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; z-index: 5; }
   .timeline-label { font-family: var(--mono); font-size: 9px; color: var(--ink-2); letter-spacing: 0.14em; text-transform: uppercase; display: flex; justify-content: space-between; margin-bottom: 6px; }
   .timeline-label .tl-now { color: var(--accent); }
   .timeline input[type=range] { width: 100%; }
   .boot { position: absolute; inset: 0; background: #05070B; z-index: 30; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 18px; font-family: var(--mono); transition: opacity 1.2s ease; }
   .boot.hidden { opacity: 0; pointer-events: none; }
+  .boot.removed { display: none; }
   .boot .boot-brand { font-size: 11px; color: var(--accent); letter-spacing: 0.3em; text-transform: uppercase; }
   .boot .boot-status { font-size: 10px; color: var(--ink-2); letter-spacing: 0.2em; text-transform: uppercase; min-height: 14px; }
   .boot .boot-bar { width: 240px; height: 2px; background: rgba(255,255,255,0.06); overflow: hidden; position: relative; }
@@ -358,16 +355,15 @@
     position: absolute; top: 14px; left: 16px; z-index: 6;
     width: 280px; max-height: 34px;
     min-width: 220px; min-height: 34px;
-    background: rgba(8, 11, 17, 0.92);
+    background: rgba(8, 11, 17, 0.96);
     border: 1px solid rgba(217, 119, 87, 0.25);
     border-radius: 8px;
-    backdrop-filter: blur(12px);
     box-shadow: 0 10px 40px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.02);
     overflow: hidden;
     font-family: var(--mono);
     display: flex; flex-direction: column;
   }
-  .claude-term.expanded { max-height: none; }
+  .claude-term.expanded { max-height: min(55vh, 480px); }
   .ct-resize {
     position: absolute; right: 0; bottom: 0;
     width: 16px; height: 16px; cursor: nwse-resize;
@@ -581,6 +577,55 @@
 
   /* ============ HEATMAP BTN ============ */
   .btn.heat-active { border-color: rgba(255, 92, 124, 0.4); color: var(--danger); background: rgba(255,92,124,0.06); }
+
+  /* ============ SEARCH RESULTS DROPDOWN ============ */
+  .search-results {
+    position: absolute; top: 100%; left: 0; right: 0;
+    margin-top: 4px;
+    background: rgba(10, 14, 21, 0.97);
+    border: 1px solid var(--line-2);
+    border-radius: 8px;
+    max-height: 380px; overflow-y: auto;
+    z-index: 50;
+    display: none;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+  }
+  .search-results.visible { display: block; }
+  .search-results::-webkit-scrollbar { width: 5px; }
+  .search-results::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 3px; }
+  .sr-head {
+    padding: 8px 12px 6px;
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--ink-2);
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; background: rgba(10,14,21,0.97); z-index: 1;
+  }
+  .sr-head .sr-filter-btn {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--accent); cursor: pointer;
+    padding: 2px 8px; border: 1px solid rgba(94,233,240,0.3);
+    border-radius: 4px; background: transparent;
+    transition: background .15s ease;
+  }
+  .sr-head .sr-filter-btn:hover { background: rgba(94,233,240,0.08); }
+  .sr-head .sr-filter-btn.active { background: rgba(94,233,240,0.15); border-color: var(--accent); }
+  .sr-item {
+    display: grid; grid-template-columns: 10px 1fr auto; gap: 10px;
+    align-items: center;
+    padding: 8px 12px; cursor: pointer;
+    transition: background .1s ease;
+    border-bottom: 1px solid rgba(255,255,255,0.02);
+  }
+  .sr-item:hover { background: rgba(255,255,255,0.04); }
+  .sr-item:last-child { border-bottom: none; }
+  .sr-item .sr-dot { width: 8px; height: 8px; border-radius: 50%; box-shadow: 0 0 6px currentColor; }
+  .sr-item .sr-title { font-size: 12px; color: var(--ink-0); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sr-item .sr-title mark { background: rgba(94,233,240,0.2); color: var(--accent); border-radius: 2px; padding: 0 1px; }
+  .sr-item .sr-region { font-family: var(--mono); font-size: 9px; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap; }
+  .sr-empty { padding: 20px 12px; text-align: center; font-size: 11px; color: var(--ink-2); }
+  .search.has-filter .search-icon { color: var(--accent); }
+  .search.has-filter input { border-color: rgba(94,233,240,0.3); }
 </style>
 </head>
 <body>
@@ -604,13 +649,13 @@
       </div>
     </div>
 
-    <div class="search claude">
+    <div class="search" id="search-wrap">
       <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/>
       </svg>
-      <input id="search-input" placeholder="Frag Claude: &quot;Was weiß ich über Neural-Brain?&quot;…" autocomplete="off"/>
-      <div class="mode-badge">CLAUDE</div>
-      <div class="kbd" style="right: 90px;">⌘K</div>
+      <input id="search-input" placeholder="Suche im Brain… z.B. &quot;MCP&quot;, &quot;Routing&quot;, &quot;Projekt&quot;" autocomplete="off"/>
+      <div class="kbd">⌘K</div>
+      <div class="search-results" id="search-results"></div>
     </div>
 
     <div class="top-actions">
