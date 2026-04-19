@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from functools import partial
 from http.server import HTTPServer, SimpleHTTPRequestHandler, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
@@ -29,6 +30,10 @@ def _make_web_handler(directory: Path):
     class WebHandler(SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=str(directory), **kwargs)
+
+        def end_headers(self):
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+            super().end_headers()
 
         def do_GET(self):
             if self.path == "/api/config":
@@ -347,4 +352,4 @@ class BrainWebWidget(QWebEngineView):
         webchannel_script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         page.scripts().insert(webchannel_script)
 
-        self.setUrl(QUrl(f"http://127.0.0.1:{self._port}/index.html"))
+        self.setUrl(QUrl(f"http://127.0.0.1:{self._port}/index.html?v={int(time.time())}"))

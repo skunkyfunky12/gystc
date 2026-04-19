@@ -738,7 +738,7 @@ function applyPaletteToEdges() {
     const na = graph.nodes[e[0]], nb = graph.nodes[e[1]];
     const same = na.region === nb.region;
     c1.set(palette[na.regionIdx]); c2.set(palette[nb.regionIdx]);
-    const baseA = same ? 0.42 : 0.12;
+    const baseA = same ? 0.50 : 0.20;
     for (let s = 0; s < segPerEdge; s++) {
       const t0 = s / segPerEdge, t1 = (s + 1) / segPerEdge;
       cm.copy(c1).lerp(c2, t0);
@@ -763,52 +763,73 @@ edgeGeom.setAttribute('alpha', new THREE.BufferAttribute(edgeAlphas, 1));
 edgeGeom.setAttribute('params', new THREE.BufferAttribute(edgeParams, 2));
 applyPaletteToEdges();
 
-/* ---------- EDGE ACTIVATION SYSTEM (dormant by default, pulse on access) ---------- */
+/* ---------- EDGE ACTIVATION SYSTEM (alpha-buffer based, no textures) ---------- */
 const EDGE_CAP = Math.max(graph.edges.length, 1);
-const edgeActivation = new Float32Array(EDGE_CAP); // 0.0 = dormant, 1.0 = firing
-const activeEdgeArr = new Uint8Array(EDGE_CAP * 4);
-const activeEdgeTex = new THREE.DataTexture(activeEdgeArr, EDGE_CAP, 1, THREE.RGBAFormat);
-
-function syncActiveEdgeTexture() {
-  for (let i = 0; i < EDGE_CAP; i++) {
-    const v = Math.min(255, Math.round(edgeActivation[i] * 255));
-    activeEdgeArr[i*4]   = v;
-    activeEdgeArr[i*4+1] = v;
-    activeEdgeArr[i*4+2] = v;
-    activeEdgeArr[i*4+3] = v;
-  }
-  activeEdgeTex.needsUpdate = true;
-}
+const edgeActivation = new Float32Array(EDGE_CAP);
+const highlightedEdges = new Set();
 
 function activateEdges(edgeIds) {
   for (const id of edgeIds) {
     if (id < EDGE_CAP) edgeActivation[id] = 1.0;
   }
-  syncActiveEdgeTexture();
+  refreshEdgeAlphas();
 }
 
 function updateEdgeActivation(dt) {
-  let dirty = false;
+  let anyActive = false;
   for (let i = 0; i < EDGE_CAP; i++) {
     if (edgeActivation[i] > 0) {
-      edgeActivation[i] = Math.max(0, edgeActivation[i] - dt * 0.25); // ~4s linear, ~3s perceptible
-      dirty = true;
+      edgeActivation[i] = Math.max(0, edgeActivation[i] - dt * 0.25);
+      anyActive = true;
     }
   }
-  if (dirty) syncActiveEdgeTexture();
+  if (anyActive) refreshEdgeAlphas();
+}
+
+function setHighlights(edgeIds) {
+  highlightedEdges.clear();
+  edgeIds.forEach(id => { if (id < EDGE_CAP) highlightedEdges.add(id); });
+  refreshEdgeAlphas();
+}
+
+function refreshEdgeAlphas() {
+  const cutoff = state.edgeRange * maxEdgeLength;
+  const opScale = state.edgeOpacity / 0.35;
+  graph.edges.forEach(([a, b], i) => {
+    const na = graph.nodes[a], nb = graph.nodes[b];
+    const sameRegion = na.region === nb.region;
+    const inRange = edgeLengths[i] <= cutoff;
+    const show = inRange && (!state.intraOnly || sameRegion);
+    const off = i * vertsPerEdge;
+    if (!show) {
+      for (let s = 0; s < segPerEdge; s++) {
+        const vi = off + s * 2;
+        edgeAlphas[vi] = 0.0; edgeAlphas[vi+1] = 0.0;
+      }
+      return;
+    }
+    const baseA = sameRegion ? 0.50 : 0.20;
+    const act = edgeActivation[i] * 0.6;
+    const hl = highlightedEdges.has(i) ? 0.8 : 0.0;
+    for (let s = 0; s < segPerEdge; s++) {
+      const t0 = s / segPerEdge, t1 = (s + 1) / segPerEdge;
+      const tap = (t) => Math.pow(Math.sin(t * Math.PI), 0.6);
+      const vi = off + s * 2;
+      edgeAlphas[vi]   = Math.min(1.0, baseA * tap(t0) * opScale + act + hl);
+      edgeAlphas[vi+1] = Math.min(1.0, baseA * tap(t1) * opScale + act + hl);
+    }
+  });
+  edgeGeom.attributes.alpha.needsUpdate = true;
 }
 
 const edgeMaterial = new THREE.ShaderMaterial({
   uniforms: {
     u_time: { value: 0 },
     u_pulseSpeed: { value: state.pulseSpeed },
-    u_highlightEdges: { value: null }, // set after highlightArr is created
-    u_activeEdges: { value: activeEdgeTex },
-    u_highlightSize: { value: EDGE_CAP },
   },
   vertexShader: `
     attribute float alpha;
-    attribute vec2 params; // t, edgeId
+    attribute vec2 params;
     varying vec3 v_color;
     varying float v_alpha;
     varying float v_t;
@@ -828,45 +849,19 @@ const edgeMaterial = new THREE.ShaderMaterial({
     varying float v_edgeId;
     uniform float u_time;
     uniform float u_pulseSpeed;
-    uniform sampler2D u_highlightEdges;
-    uniform sampler2D u_activeEdges;
-    uniform float u_highlightSize;
     void main() {
-      float texU = (v_edgeId + 0.5) / u_highlightSize;
-      float active = texture2D(u_activeEdges, vec2(texU, 0.5)).r;
-      float hl = texture2D(u_highlightEdges, vec2(texU, 0.5)).r;
-
-      // Base: dormant structure — v_alpha already includes slider + edge importance
-      float baseAlpha = v_alpha;
-      vec3 baseCol = v_color * v_alpha;
-
-      // Traveling signal pulse — ONLY on active edges
+      // Traveling pulse only on bright (activated/highlighted) edges
+      float activation = smoothstep(0.6, 0.9, v_alpha);
       float phase = u_time * u_pulseSpeed * 0.55 + v_edgeId * 0.13;
-      float pulsePos = fract(phase);
-      float pulse = smoothstep(0.12, 0.0, abs(pulsePos - v_t)) * active;
-
-      // Combine: dormant structure + active glow + traveling pulse + highlight
-      float alpha = baseAlpha + pulse * 0.7 + active * 0.15 + hl * 0.9;
-      vec3 col = baseCol + pulse * v_color * 1.8 + active * v_color * 0.2 + hl * v_color * 1.3;
+      float pulse = smoothstep(0.12, 0.0, abs(fract(phase) - v_t)) * activation;
+      float alpha = v_alpha + pulse * 0.5;
+      vec3 col = v_color * (1.0 + pulse * 1.2);
       gl_FragColor = vec4(col, alpha);
     }
   `,
   transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   vertexColors: true,
 });
-
-// Pack highlight buffer (1 byte per edge, 0..255) — used for hover feedback
-const highlightArr = new Uint8Array(EDGE_CAP * 4);
-const highlightTex = new THREE.DataTexture(highlightArr, EDGE_CAP, 1, THREE.RGBAFormat);
-edgeMaterial.uniforms.u_highlightEdges.value = highlightTex;
-
-function setHighlights(edgeIds) {
-  highlightArr.fill(0);
-  edgeIds.forEach(id => {
-    if (id < EDGE_CAP) { highlightArr[id*4] = 255; highlightArr[id*4+1] = 255; highlightArr[id*4+2] = 255; highlightArr[id*4+3] = 255; }
-  });
-  highlightTex.needsUpdate = true;
-}
 
 const edgeLines = new THREE.LineSegments(edgeGeom, edgeMaterial);
 scene.add(edgeLines);
@@ -1155,24 +1150,7 @@ state.edgeRange = 1.0;
 state.intraOnly = false;
 
 function applyEdgeFilters() {
-  const cutoff = state.edgeRange * maxEdgeLength;
-  const opScale = state.edgeOpacity / 0.35; // normalize so default=1x
-  graph.edges.forEach(([a, b], i) => {
-    const na = graph.nodes[a], nb = graph.nodes[b];
-    const sameRegion = na.region === nb.region;
-    const inRange = edgeLengths[i] <= cutoff;
-    const show = inRange && (!state.intraOnly || sameRegion);
-    const baseA = sameRegion ? 0.42 : 0.12;
-    const off = i * vertsPerEdge;
-    for (let s = 0; s < segPerEdge; s++) {
-      const t0 = s / segPerEdge, t1 = (s + 1) / segPerEdge;
-      const tap = (t) => Math.pow(Math.sin(t * Math.PI), 0.6);
-      const vi = off + s * 2;
-      edgeAlphas[vi]   = show ? baseA * tap(t0) * opScale : 0.0;
-      edgeAlphas[vi+1] = show ? baseA * tap(t1) * opScale : 0.0;
-    }
-  });
-  edgeGeom.attributes.alpha.needsUpdate = true;
+  refreshEdgeAlphas();
 }
 
 bindSlider('edgerange-slider', 'edgerange-val', (v) => {
