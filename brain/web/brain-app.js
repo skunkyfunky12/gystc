@@ -205,6 +205,7 @@ function buildGraphFromData(data) {
     const node = {
       id: i,
       title: n.title || n.id || `Node ${i}`,
+      source_file: n.source_file || '',
       region: regionKey,
       regionIdx: regionIdx,
       pos: pos,
