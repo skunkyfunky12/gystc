@@ -329,6 +329,9 @@ const state = {
   pulseSpeed: TWEAK_DEFAULTS.pulseSpeed,
   bloom: TWEAK_DEFAULTS.bloom != null ? TWEAK_DEFAULTS.bloom : 0.55,
   bloomRadius: TWEAK_DEFAULTS.bloomRadius != null ? TWEAK_DEFAULTS.bloomRadius : 0.7,
+  edgeOpacity: TWEAK_DEFAULTS.edgeOpacity || 0.45,
+  edgeRange: TWEAK_DEFAULTS.edgeRange || 1.0,
+  intraOnly: TWEAK_DEFAULTS.intraOnly || false,
   autoRotate: true,
   activeRegion: null,       // filtering
   hoverId: null,
@@ -606,7 +609,7 @@ const nodeMaterial = new THREE.ShaderMaterial({
       vec3 col = v_color * (core * 1.4 + soma * 1.8 + halo * 0.1 * u_glow + dendrite + ring * 0.22 + confHalo + rim + actBloom + actCore);
       col += vec3(1.0, 1.0, 0.92) * (actCore * 0.4 + actBloom * 0.18 + rim * 0.15);
       float a = (core * 1.0 + soma * 0.7 + halo * 0.1 * u_glow + dendrite * 0.7 + confHalo * 0.2 + rim * 0.6 + actBloom * 0.85 + actCore * 0.7) * v_alpha * min(v_pulse, 1.15);
-      gl_FragColor = vec4(col, a);
+      gl_FragColor = vec4(min(col, 1.0), a);
     }
   `,
   transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
@@ -744,9 +747,7 @@ function applyPaletteToEdges() {
   const c1 = new THREE.Color(), c2 = new THREE.Color(), cm = new THREE.Color();
   graph.edges.forEach((e, i) => {
     const na = graph.nodes[e[0]], nb = graph.nodes[e[1]];
-    const same = na.region === nb.region;
     c1.set(palette[na.regionIdx]); c2.set(palette[nb.regionIdx]);
-    const baseA = same ? 0.50 : 0.20;
     for (let s = 0; s < segPerEdge; s++) {
       const t0 = s / segPerEdge, t1 = (s + 1) / segPerEdge;
       cm.copy(c1).lerp(c2, t0);
@@ -754,9 +755,6 @@ function applyPaletteToEdges() {
       edgeColors[vi*3]   = cm.r; edgeColors[vi*3+1] = cm.g; edgeColors[vi*3+2] = cm.b;
       cm.copy(c1).lerp(c2, t1);
       edgeColors[vi*3+3] = cm.r; edgeColors[vi*3+4] = cm.g; edgeColors[vi*3+5] = cm.b;
-      const tap = (t) => Math.pow(Math.sin(t * Math.PI), 0.6);
-      edgeAlphas[vi]   = baseA * tap(t0);
-      edgeAlphas[vi+1] = baseA * tap(t1);
     }
   });
   if (edgeGeom.attributes.color) edgeGeom.attributes.color.needsUpdate = true;
@@ -800,7 +798,10 @@ function setHighlights(edgeIds) {
   refreshEdgeAlphas();
 }
 
+const tap = (t) => Math.pow(Math.sin(t * Math.PI), 0.6);
+
 function refreshEdgeAlphas() {
+  if (maxEdgeLength === 0) return; // not yet initialized
   const cutoff = state.edgeRange * maxEdgeLength;
   const opScale = state.edgeOpacity / 0.35;
   graph.edges.forEach(([a, b], i) => {
@@ -821,7 +822,6 @@ function refreshEdgeAlphas() {
     const hl = highlightedEdges.has(i) ? 0.8 : 0.0;
     for (let s = 0; s < segPerEdge; s++) {
       const t0 = s / segPerEdge, t1 = (s + 1) / segPerEdge;
-      const tap = (t) => Math.pow(Math.sin(t * Math.PI), 0.6);
       const vi = off + s * 2;
       edgeAlphas[vi]   = Math.min(1.0, baseA * tap(t0) * opScale + act + hl);
       edgeAlphas[vi+1] = Math.min(1.0, baseA * tap(t1) * opScale + act + hl);
@@ -859,7 +859,7 @@ const edgeMaterial = new THREE.ShaderMaterial({
     uniform float u_pulseSpeed;
     void main() {
       // Traveling pulse only on bright (activated/highlighted) edges
-      float activation = smoothstep(0.6, 0.9, v_alpha);
+      float activation = smoothstep(0.75, 1.0, v_alpha);
       float phase = u_time * u_pulseSpeed * 0.55 + v_edgeId * 0.13;
       float pulse = smoothstep(0.12, 0.0, abs(fract(phase) - v_t)) * activation;
       float alpha = v_alpha + pulse * 0.5;
@@ -1165,9 +1165,6 @@ graph.edges.forEach(([a, b], i) => {
   if (edgeLengths[i] > maxEdgeLength) maxEdgeLength = edgeLengths[i];
 });
 
-state.edgeRange = 1.0;
-state.intraOnly = false;
-
 function applyEdgeFilters() {
   refreshEdgeAlphas();
 }
@@ -1190,9 +1187,6 @@ bindSlider('intra-slider', 'intra-val', (v) => {
 }, true);
 
 // init slider UI values
-state.edgeOpacity = TWEAK_DEFAULTS.edgeOpacity || 0.45;
-state.edgeRange = TWEAK_DEFAULTS.edgeRange || 1.0;
-state.intraOnly = TWEAK_DEFAULTS.intraOnly || false;
 document.getElementById('glow-slider').value = state.glow;
 document.getElementById('stars-slider').value = state.stars;
 document.getElementById('size-slider').value = state.nodeSize;
