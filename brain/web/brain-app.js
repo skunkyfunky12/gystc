@@ -560,9 +560,10 @@ const nodeMaterial = new THREE.ShaderMaterial({
       gl_Position = projectionMatrix * mvPosition;
 
       float id = float(gl_VertexID);
-      float pulse = 0.85 + 0.15 * sin(u_time * 1.6 + id * 0.23);
+      // Dormant nodes: static. Active nodes: pulse proportional to activation.
+      float pulse = 1.0 + activation * 0.3 * sin(u_time * 2.5 + id * 0.23);
       float s = size * u_sizeScale * pulse;
-      s += activation * 5.0; // recency bumps size: firing nodes swell visibly
+      s += activation * 5.0; // firing nodes swell visibly
       if (abs(id - u_hoverId) < 0.5) { s *= 2.4; pulse = 1.3; }
       if (abs(id - u_selectedId) < 0.5) { s *= 2.0; pulse = 1.6; }
       v_pulse = pulse + activation * 0.35;
