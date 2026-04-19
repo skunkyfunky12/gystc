@@ -836,10 +836,9 @@ const edgeMaterial = new THREE.ShaderMaterial({
       float active = texture2D(u_activeEdges, vec2(texU, 0.5)).r;
       float hl = texture2D(u_highlightEdges, vec2(texU, 0.5)).r;
 
-      // Base: dormant structure — v_alpha already encodes edge importance
-      // (0.42 same-region, 0.12 cross-region), so use it directly but dimmed
-      float baseAlpha = v_alpha * 0.7;
-      vec3 baseCol = v_color * 0.5;
+      // Base: dormant structure — v_alpha already includes slider + edge importance
+      float baseAlpha = v_alpha;
+      vec3 baseCol = v_color * v_alpha;
 
       // Traveling signal pulse — ONLY on active edges
       float phase = u_time * u_pulseSpeed * 0.55 + v_edgeId * 0.13;
