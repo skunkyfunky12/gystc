@@ -54,7 +54,7 @@ class PhysicsSimulation:
         repel_strength: float = 12.0,
         link_strength: float = 0.3,
         link_distance: float = 80.0,
-        region_gravity: float = 0.35,
+        region_gravity: float = 0.55,
         damping: float = 0.95,
     ) -> None:
         self._positions = np.array(positions, dtype=np.float64)   # work in f64 for stability
@@ -93,8 +93,13 @@ class PhysicsSimulation:
         forces -= pos * self.center_strength
 
         # 2. Region gravity: pull each node toward its region centre
+        #    Non-linear: gravity increases with distance to prevent drift
         region_targets = self._region_centers[self._node_regions]   # (N, 3)
-        forces += (region_targets - pos) * self.region_gravity
+        diff = region_targets - pos
+        dist_from_center = np.linalg.norm(diff, axis=1, keepdims=True)
+        dist_from_center = np.maximum(dist_from_center, 1e-6)
+        gravity_scale = self.region_gravity * (1.0 + dist_from_center / 150.0)
+        forces += diff * gravity_scale
 
         # 3. Node repulsion via cKDTree (inverse-square, radius = 80)
         if self.repel_strength != 0.0:
