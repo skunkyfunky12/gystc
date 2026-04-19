@@ -20,6 +20,7 @@ from brain_mcp.tools.retrieve import handle_brain_retrieve
 from brain_mcp.tools.store import handle_brain_store
 from brain_mcp.tools.related import handle_brain_related
 from brain_mcp.tools.context import handle_brain_context
+from brain_mcp.tools.classify_tool import handle_brain_classify, handle_brain_classify_feedback
 
 @dataclass
 class BrainState:
@@ -268,47 +269,12 @@ def brain_reclassify(dry_run: bool = True) -> dict:
     Args:
         dry_run: If true, only show what would change without applying (default: true)
     """
-    import re as _re
-    from brain_mcp.tools.classifier import classify_region
-    from brain_mcp.tools.recent import REGION_NAMES
-    from brain_mcp.indexer.scanner import REGION_TAG_TO_IDX
-
-    _IDX_TO_SLUG = {idx: slug for slug, idx in REGION_TAG_TO_IDX.items()}
-    _BRAIN_TAG_RE = _re.compile(r"#brain/[\w-]+")
-
     state: BrainState = mcp.get_context().request_context.lifespan_context
-    stammhirn_notes = [n for n in state.db.get_all_notes() if n["region_idx"] == 9]
-    moves = []
-    file_errors = []
-    for note in stammhirn_notes:
-        new_idx = classify_region(note["title"], (note["content"] or ""), path=note["path"])
-        if new_idx != 9:
-            moves.append({"title": note["title"], "path": note["path"],
-                          "from": REGION_NAMES[9], "to": REGION_NAMES[new_idx], "to_idx": new_idx})
-            if not dry_run:
-                state.db.update_note_region(note["id"], new_idx)
-                # Also update the #brain/ tag in the .md file on disk
-                file_path = state.config.vault_path / note["path"]
-                new_slug = _IDX_TO_SLUG.get(new_idx, "stammhirn")
-                try:
-                    text = file_path.read_text(encoding="utf-8", errors="replace")
-                    if _BRAIN_TAG_RE.search(text):
-                        text = _BRAIN_TAG_RE.sub(f"#brain/{new_slug}", text)
-                    else:
-                        text = text.rstrip() + f"\n\n#brain/{new_slug}\n"
-                    file_path.write_text(text, encoding="utf-8")
-                except OSError as e:
-                    file_errors.append(f"{note['path']}: {e}")
-    result = {
-        "dry_run": dry_run,
-        "stammhirn_total": len(stammhirn_notes),
-        "reclassified": len(moves),
-        "unchanged": len(stammhirn_notes) - len(moves),
-        "moves": moves[:50],
-        "moves_truncated": len(moves) > 50,
-    }
-    if file_errors:
-        result["file_errors"] = file_errors[:10]
+    result = handle_brain_classify(
+        state.db, state.config.vault_path,
+        batch=True, apply=not dry_run,
+    )
+    result["dry_run"] = dry_run
     return result
 
 @mcp.tool()
@@ -362,6 +328,50 @@ def brain_status() -> dict:
         "model_loaded": state.embedder.is_ready,
         "vault_path": str(state.config.vault_path),
     }
+
+@mcp.tool()
+def brain_classify(
+    title: str | None = None,
+    path: str | None = None,
+    content: str | None = None,
+    batch: bool = False,
+    apply: bool = False,
+) -> dict:
+    """Classify a note into a brain region, or batch-classify all Stammhirn notes.
+
+    Uses the FUNKTION > FORM > THEMA decision tree — no LLM or API key needed.
+
+    Args:
+        title: Note title to classify
+        path: Note path (alternative to title)
+        content: Note content (if not in DB yet)
+        batch: If true, classify all Stammhirn notes
+        apply: If true, write classification to DB + file tag
+    """
+    state: BrainState = mcp.get_context().request_context.lifespan_context
+    return handle_brain_classify(
+        state.db, state.config.vault_path,
+        title=title, path=path, content=content, batch=batch, apply=apply,
+    )
+
+@mcp.tool()
+def brain_classify_feedback(
+    path: str,
+    correct_region_idx: int,
+    reason: str = "",
+) -> dict:
+    """Correct a misclassification. Updates DB + file tag. Logs for future improvement.
+
+    Args:
+        path: Note path in the vault
+        correct_region_idx: The correct region index (0-11)
+        reason: Why this correction is needed (for the log)
+    """
+    state: BrainState = mcp.get_context().request_context.lifespan_context
+    return handle_brain_classify_feedback(
+        state.db, state.config.vault_path, state.config.data_dir,
+        path=path, correct_region_idx=correct_region_idx, reason=reason,
+    )
 
 # ---------------------------------------------------------------------------
 # MCP Resources

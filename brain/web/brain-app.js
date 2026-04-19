@@ -340,11 +340,28 @@ console.log(`Graph: ${graph.nodes.length} nodes, ${graph.edges.length} edges`);
 
 const canvas = document.getElementById('three-canvas');
 const canvasWrap = document.getElementById('canvas-wrap');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  preserveDrawingBuffer: true,
+  alpha: false,
+  powerPreference: 'high-performance',
+});
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
+
+// Prevent blank frames on WebGL context loss (QWebEngine/Chromium compositing)
+canvas.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  console.warn('WebGL context lost — preventing default cleanup');
+});
+canvas.addEventListener('webglcontextrestored', () => {
+  console.log('WebGL context restored');
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  onResize();
+});
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05070B);
@@ -745,12 +762,48 @@ edgeGeom.setAttribute('alpha', new THREE.BufferAttribute(edgeAlphas, 1));
 edgeGeom.setAttribute('params', new THREE.BufferAttribute(edgeParams, 2));
 applyPaletteToEdges();
 
+/* ---------- EDGE ACTIVATION SYSTEM (dormant by default, pulse on access) ---------- */
+const EDGE_CAP = Math.max(graph.edges.length, 1);
+const edgeActivation = new Float32Array(EDGE_CAP); // 0.0 = dormant, 1.0 = firing
+const activeEdgeArr = new Uint8Array(EDGE_CAP * 4);
+const activeEdgeTex = new THREE.DataTexture(activeEdgeArr, EDGE_CAP, 1, THREE.RGBAFormat);
+
+function syncActiveEdgeTexture() {
+  for (let i = 0; i < EDGE_CAP; i++) {
+    const v = Math.min(255, Math.round(edgeActivation[i] * 255));
+    activeEdgeArr[i*4]   = v;
+    activeEdgeArr[i*4+1] = v;
+    activeEdgeArr[i*4+2] = v;
+    activeEdgeArr[i*4+3] = v;
+  }
+  activeEdgeTex.needsUpdate = true;
+}
+
+function activateEdges(edgeIds) {
+  for (const id of edgeIds) {
+    if (id < EDGE_CAP) edgeActivation[id] = 1.0;
+  }
+  syncActiveEdgeTexture();
+}
+
+function updateEdgeActivation(dt) {
+  let dirty = false;
+  for (let i = 0; i < EDGE_CAP; i++) {
+    if (edgeActivation[i] > 0) {
+      edgeActivation[i] = Math.max(0, edgeActivation[i] - dt * 0.25); // ~4s linear, ~3s perceptible
+      dirty = true;
+    }
+  }
+  if (dirty) syncActiveEdgeTexture();
+}
+
 const edgeMaterial = new THREE.ShaderMaterial({
   uniforms: {
     u_time: { value: 0 },
     u_pulseSpeed: { value: state.pulseSpeed },
-    u_highlightEdges: { value: new THREE.DataTexture(new Uint8Array(1024*4), 1024, 1, THREE.RGBAFormat) },
-    u_highlightSize: { value: 1024 },
+    u_highlightEdges: { value: null }, // set after highlightArr is created
+    u_activeEdges: { value: activeEdgeTex },
+    u_highlightSize: { value: EDGE_CAP },
   },
   vertexShader: `
     attribute float alpha;
@@ -775,19 +828,25 @@ const edgeMaterial = new THREE.ShaderMaterial({
     uniform float u_time;
     uniform float u_pulseSpeed;
     uniform sampler2D u_highlightEdges;
+    uniform sampler2D u_activeEdges;
     uniform float u_highlightSize;
     void main() {
-      // Traveling synaptic pulse
+      float texU = (v_edgeId + 0.5) / u_highlightSize;
+      float active = texture2D(u_activeEdges, vec2(texU, 0.5)).r;
+      float hl = texture2D(u_highlightEdges, vec2(texU, 0.5)).r;
+
+      // Base: very dim dormant structure (just barely visible)
+      float baseAlpha = v_alpha * 0.08;
+      vec3 baseCol = v_color * 0.08;
+
+      // Traveling signal pulse — ONLY on active edges
       float phase = u_time * u_pulseSpeed * 0.55 + v_edgeId * 0.13;
       float pulsePos = fract(phase);
-      float pulse = smoothstep(0.12, 0.0, abs(pulsePos - v_t));
-      float phase2 = u_time * u_pulseSpeed * 0.33 + v_edgeId * 0.29 + 0.5;
-      float pulse2 = smoothstep(0.18, 0.0, abs(fract(phase2) - v_t)) * 0.4;
-      float texU = (v_edgeId + 0.5) / u_highlightSize;
-      float hl = texture2D(u_highlightEdges, vec2(texU, 0.5)).r;
-      float breath = 0.85 + 0.15 * sin(u_time * 0.8 + v_edgeId * 1.7 + v_t * 3.0);
-      float alpha = (v_alpha * breath) + pulse * 0.45 * v_alpha + pulse2 * v_alpha + hl * 0.9;
-      vec3 col = v_color * breath + pulse * v_color * 1.6 + pulse2 * v_color * 0.6 + hl * v_color * 1.3;
+      float pulse = smoothstep(0.12, 0.0, abs(pulsePos - v_t)) * active;
+
+      // Combine: dormant structure + active glow + traveling pulse + highlight
+      float alpha = baseAlpha + pulse * 0.7 + active * 0.15 + hl * 0.9;
+      vec3 col = baseCol + pulse * v_color * 1.8 + active * v_color * 0.2 + hl * v_color * 1.3;
       gl_FragColor = vec4(col, alpha);
     }
   `,
@@ -795,15 +854,17 @@ const edgeMaterial = new THREE.ShaderMaterial({
   vertexColors: true,
 });
 
-// Pack highlight buffer (1 byte per edge, 0..255)
-const highlightArr = new Uint8Array(1024 * 4);
+// Pack highlight buffer (1 byte per edge, 0..255) — used for hover feedback
+const highlightArr = new Uint8Array(EDGE_CAP * 4);
+const highlightTex = new THREE.DataTexture(highlightArr, EDGE_CAP, 1, THREE.RGBAFormat);
+edgeMaterial.uniforms.u_highlightEdges.value = highlightTex;
+
 function setHighlights(edgeIds) {
   highlightArr.fill(0);
   edgeIds.forEach(id => {
-    if (id < 1024) { highlightArr[id*4] = 255; highlightArr[id*4+1] = 255; highlightArr[id*4+2] = 255; highlightArr[id*4+3] = 255; }
+    if (id < EDGE_CAP) { highlightArr[id*4] = 255; highlightArr[id*4+1] = 255; highlightArr[id*4+2] = 255; highlightArr[id*4+3] = 255; }
   });
-  edgeMaterial.uniforms.u_highlightEdges.value.image = { data: highlightArr, width: 1024, height: 1 };
-  edgeMaterial.uniforms.u_highlightEdges.value.needsUpdate = true;
+  highlightTex.needsUpdate = true;
 }
 
 const edgeLines = new THREE.LineSegments(edgeGeom, edgeMaterial);
@@ -934,6 +995,7 @@ function selectNode(id) {
   state.selectedId = id;
   nodeMaterial.uniforms.u_selectedId.value = id;
   setHighlights(nodeEdges[id]);
+  activateEdges(nodeEdges[id]);
   renderDetail(graph.nodes[id]);
   if (window.__onNodeClick) window.__onNodeClick(id, graph.nodes[id].title);
   // Focus camera on the node
@@ -2080,15 +2142,17 @@ function updateArcs(t) {
 // ----- Recency glow uniform (piggyback on existing "activation" attribute) -----
 // Lights up nodes Claude is actively reading/writing. Slow decay for visibility.
 function updateRecency(dt) {
+  let dirty = false;
   for (let i = 0; i < graph.nodes.length; i++) {
     if (nodeRecency[i] > 0) {
       // Fast initial flash (first 0.3s), then slow fade over ~8 seconds
       const rate = nodeRecency[i] > 0.9 ? 0.7 : 0.12;
       nodeRecency[i] = Math.max(0, nodeRecency[i] - dt * rate);
+      nodeActivation[i] = nodeRecency[i];
+      dirty = true;
     }
-    nodeActivation[i] = nodeRecency[i];
   }
-  nodeGeometry.attributes.activation.needsUpdate = true;
+  if (dirty) nodeGeometry.attributes.activation.needsUpdate = true;
 }
 
 // ----- Minimap -----
@@ -2234,12 +2298,8 @@ const bootTimer = setInterval(() => {
         nodeUsage[match.id] = Math.min(nodeUsage[match.id] + 0.15, 1.0);
         regionUsage[match.regionIdx] = Math.min(regionUsage[match.regionIdx] + 0.1, 1.0);
 
-        // Synaptic propagation: light up connected edges
-        setHighlights(nodeEdges[match.id]);
-        setTimeout(() => {
-          if (state.selectedId != null) setHighlights(nodeEdges[state.selectedId]);
-          else setHighlights([]);
-        }, 2500);
+        // Synaptic propagation: activate edges (decay naturally via updateEdgeActivation)
+        activateEdges(nodeEdges[match.id]);
 
         // Propagate to direct neighbors (weaker)
         for (const ei of nodeEdges[match.id]) {
@@ -2275,6 +2335,7 @@ function animate() {
   if (starsObj) starsObj.material.uniforms.u_time.value = t;
 
   updateRecency(dt);
+  updateEdgeActivation(dt);
   updatePulseRings(t);
   updateArcs(t);
   miniTick += dt;
