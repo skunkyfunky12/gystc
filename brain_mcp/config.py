@@ -121,5 +121,5 @@ def load_config(config_dir: Path | None = None) -> BrainConfig:
         folder_to_region=file_data.get("folder_to_region", {}),
         log_level=os.environ.get("BRAIN_LOG_LEVEL") or file_data.get("log_level", "INFO"),
         auto_context=file_data.get("auto_context", True),
-        reranker=file_data.get("reranker", None),
+        reranker=file_data.get("reranker", "cross-encoder"),
     )
