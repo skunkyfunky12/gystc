@@ -21,6 +21,7 @@ from brain_mcp.tools.store import handle_brain_store
 from brain_mcp.tools.related import handle_brain_related
 from brain_mcp.tools.context import handle_brain_context
 from brain_mcp.tools.classify_tool import handle_brain_classify, handle_brain_classify_feedback
+from brain_mcp.tools.versioning import handle_brain_history, handle_brain_diff, handle_brain_rollback
 
 @dataclass
 class BrainState:
@@ -338,6 +339,44 @@ def brain_status() -> dict:
         "model_loaded": state.embedder.is_ready,
         "vault_path": str(state.config.vault_path),
     }
+
+@mcp.tool()
+def brain_history(path: str) -> list[dict] | dict:
+    """Show version history of a note. Use to see what changed and when.
+
+    Args:
+        path: Note path in the vault (e.g. "02 Projekte/My Note.md")
+    """
+    state: BrainState = mcp.get_context().request_context.lifespan_context
+    return handle_brain_history(state.db, path=path)
+
+@mcp.tool()
+def brain_diff(path: str, version_id: int) -> dict:
+    """Show differences between the current note and a previous version.
+
+    Args:
+        path: Note path in the vault
+        version_id: Version ID from brain_history
+    """
+    state: BrainState = mcp.get_context().request_context.lifespan_context
+    return handle_brain_diff(state.db, path=path, version_id=version_id)
+
+@mcp.tool()
+def brain_rollback(path: str, version_id: int) -> dict:
+    """Restore a note to a previous version. Writes old content back to the .md file.
+    The current content is saved as a new version before overwriting.
+
+    Args:
+        path: Note path in the vault
+        version_id: Version ID from brain_history to restore
+    """
+    state: BrainState = mcp.get_context().request_context.lifespan_context
+    if state.config.vault_path is None:
+        return {"error": "No vault_path configured"}
+    return handle_brain_rollback(
+        state.db, state.config.vault_path, path=path,
+        version_id=version_id, watcher=state.watcher,
+    )
 
 @mcp.tool()
 def brain_classify(
