@@ -109,3 +109,33 @@ def test_update_region(tmp_path):
     assert row[0] == "My planning region"
     assert row[1] == "#FF0000"
     db.close()
+
+
+def test_migration_v3_creates_note_versions(tmp_path):
+    db = BrainDB(tmp_path / "test.db")
+    tables = db.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()
+    names = [r[0] for r in tables]
+    assert "note_versions" in names
+    cols = db.execute("PRAGMA table_info(note_versions)").fetchall()
+    col_names = [c[1] for c in cols]
+    assert "note_id" in col_names
+    assert "content_hash" in col_names
+    assert "content" in col_names
+    assert "versioned_at" in col_names
+    assert "reason" in col_names
+    db.close()
+
+
+def test_migration_v3_creates_chunks(tmp_path):
+    db = BrainDB(tmp_path / "test.db")
+    tables = db.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()
+    names = [r[0] for r in tables]
+    assert "chunks" in names
+    cols = db.execute("PRAGMA table_info(chunks)").fetchall()
+    col_names = [c[1] for c in cols]
+    assert "note_id" in col_names
+    assert "heading" in col_names
+    assert "content" in col_names
+    assert "chunk_idx" in col_names
+    assert "faiss_idx" in col_names
+    db.close()

@@ -46,6 +46,36 @@ MIGRATIONS: list[str] = [
     ALTER TABLE edges ADD COLUMN source_file TEXT DEFAULT '';
     CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(edge_type);
     """,
+    # v3: CAS versioning + smart chunking
+    """
+    CREATE TABLE IF NOT EXISTS note_versions (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        note_id      INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+        content_hash TEXT NOT NULL,
+        content      TEXT NOT NULL,
+        title        TEXT NOT NULL,
+        region_idx   INTEGER NOT NULL,
+        tags         TEXT DEFAULT '[]',
+        word_count   INTEGER DEFAULT 0,
+        versioned_at TEXT NOT NULL,
+        reason       TEXT DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_versions_note ON note_versions(note_id);
+    CREATE INDEX IF NOT EXISTS idx_versions_hash ON note_versions(content_hash);
+
+    CREATE TABLE IF NOT EXISTS chunks (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        note_id      INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+        heading      TEXT NOT NULL DEFAULT '',
+        content      TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        word_count   INTEGER DEFAULT 0,
+        chunk_idx    INTEGER NOT NULL DEFAULT 0,
+        faiss_idx    INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_chunks_note ON chunks(note_id);
+    CREATE INDEX IF NOT EXISTS idx_chunks_faiss ON chunks(faiss_idx);
+    """,
 ]
 
 DEFAULT_REGIONS = [
