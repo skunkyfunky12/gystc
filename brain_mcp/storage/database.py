@@ -22,7 +22,8 @@ class BrainDB:
             return self._conn.execute(sql, params)
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     def upsert_note(
         self,
@@ -289,7 +290,7 @@ class BrainDB:
         words = query.split()
         if not words:
             return '""'
-        return " ".join(f'"{w}"' for w in words)
+        return " ".join(f'"{w.replace(chr(34), "")}"' for w in words)
 
     def fts_search(self, query: str, limit: int = 10) -> list[sqlite3.Row]:
         safe_query = self._sanitize_fts_query(query)

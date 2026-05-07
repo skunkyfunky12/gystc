@@ -438,14 +438,20 @@ def brain_autolink(project_subfolder: str, dry_run: bool = True) -> dict:
     state: BrainState = mcp.get_context().request_context.lifespan_context
     vault = state.config.vault_path
     graphify_dir = vault / project_subfolder / "graphify"
+    if not graphify_dir.resolve().is_relative_to(vault.resolve()):
+        return {"error": "project_subfolder escapes vault directory"}
     config_path = graphify_dir / "_autolink.json"
 
     if not config_path.exists():
         return {"error": f"No _autolink.json in {graphify_dir}"}
 
     config = json.loads(config_path.read_text(encoding="utf-8"))
-    rules = config["rules"]
-    doc_folder = vault / config["doc_folder"]
+    rules = config.get("rules")
+    if not rules:
+        return {"error": "No 'rules' found in _autolink.json"}
+    doc_folder = vault / config.get("doc_folder", "")
+    if not doc_folder.resolve().is_relative_to(vault.resolve()):
+        return {"error": "doc_folder escapes vault directory"}
 
     doc_notes: dict[str, list[str]] = {r["doc"]: [] for r in rules}
     notes_linked = 0

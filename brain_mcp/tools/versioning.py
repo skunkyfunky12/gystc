@@ -68,6 +68,8 @@ def handle_brain_rollback(
         return {"error": "Version does not belong to this note"}
 
     file_path = vault_path / path
+    if not file_path.resolve().is_relative_to(vault_path.resolve()):
+        return {"error": "Path escapes vault directory"}
     if not file_path.exists():
         return {"error": f"File not found in vault: {path}"}
 

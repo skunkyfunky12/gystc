@@ -122,7 +122,15 @@ def _update_file_tag(vault_path: Path | None, note_path: str, region_idx: int) -
             text = _BRAIN_TAG_RE.sub(f"#brain/{new_slug}", text, count=1)
         else:
             text = text.rstrip() + f"\n\n#brain/{new_slug}\n"
-        file_path.write_text(text, encoding="utf-8")
+        import os, tempfile
+        fd, tmp = tempfile.mkstemp(dir=str(file_path.parent), suffix=".md.tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(text)
+            Path(tmp).replace(file_path)
+        except Exception:
+            Path(tmp).unlink(missing_ok=True)
+            raise
         return None
     except OSError as e:
         return f"{note_path}: {e}"
