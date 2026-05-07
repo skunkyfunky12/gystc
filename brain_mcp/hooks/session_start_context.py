@@ -64,21 +64,22 @@ def build_query(cwd: str, git_context: dict | None) -> str:
 def search_and_format(db_path: Path, query: str) -> str:
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
-    words = query.split()[:10]
-    safe_query = " ".join(f'"{w}"' for w in words if w)
-    if not safe_query:
-        conn.close()
-        return ""
     try:
-        results = conn.execute(
-            """SELECT n.title, n.path, substr(n.content, 1, 150) AS snippet
-               FROM notes_fts JOIN notes n ON n.id = notes_fts.rowid
-               WHERE notes_fts MATCH ? ORDER BY rank LIMIT 3""",
-            (safe_query,),
-        ).fetchall()
-    except sqlite3.OperationalError:
-        results = []
-    conn.close()
+        words = query.split()[:10]
+        safe_query = " ".join(f'"{w.replace(chr(34), "")}"' for w in words if w)
+        if not safe_query:
+            return ""
+        try:
+            results = conn.execute(
+                """SELECT n.title, n.path, substr(n.content, 1, 150) AS snippet
+                   FROM notes_fts JOIN notes n ON n.id = notes_fts.rowid
+                   WHERE notes_fts MATCH ? ORDER BY rank LIMIT 3""",
+                (safe_query,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            results = []
+    finally:
+        conn.close()
 
     if not results:
         return ""
@@ -86,7 +87,7 @@ def search_and_format(db_path: Path, query: str) -> str:
     lines = ["=== Brain Context ===", "Relevant vault notes for your current work:", ""]
     for i, r in enumerate(results, 1):
         snippet = (r["snippet"] or "").replace("\n", " ").strip()
-        lines.append(f"{i}. **{r['title']}** ({r['path']}) -- {snippet}...")
+        lines.append(f"{i}. [{r['title']}]({r['path']}) — {snippet}...")
     lines.append("")
     lines.append("Use brain_retrieve for deeper searches.")
     return "\n".join(lines)
