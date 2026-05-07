@@ -81,3 +81,80 @@ def test_h3_headings_also_split():
     content = "\n\n".join(parts)
     result = split_into_chunks(content, "Note")
     assert len(result) >= 2
+
+
+# -----------------------------------------------------------------------
+# DB integration tests
+# -----------------------------------------------------------------------
+from brain_mcp.storage.database import BrainDB
+
+
+def _make_db_note(db, path="long.md", title="Long Note"):
+    return db.upsert_note(
+        path=path, title=title, content="x" * 100,
+        content_hash="h_long", region_idx=0, tags=[],
+        word_count=600, created_at="2026-01-01", modified_at="2026-01-01",
+    )
+
+
+def test_replace_chunks(tmp_path):
+    db = BrainDB(tmp_path / "test.db")
+    nid = _make_db_note(db)
+    chunks = [
+        {"heading": "Intro", "content": "intro text", "content_hash": "ch1",
+         "word_count": 2, "chunk_idx": 0},
+        {"heading": "Details", "content": "detail text", "content_hash": "ch2",
+         "word_count": 2, "chunk_idx": 1},
+    ]
+    old_faiss = db.replace_chunks(nid, chunks)
+    assert old_faiss == []
+    stored = db.get_chunks_for_note(nid)
+    assert len(stored) == 2
+    assert stored[0]["heading"] == "Intro"
+    assert stored[1]["chunk_idx"] == 1
+    db.close()
+
+
+def test_replace_chunks_returns_old_faiss(tmp_path):
+    db = BrainDB(tmp_path / "test.db")
+    nid = _make_db_note(db)
+    db.replace_chunks(nid, [
+        {"heading": "A", "content": "a", "content_hash": "c1",
+         "word_count": 1, "chunk_idx": 0},
+    ])
+    db.set_chunk_faiss_idx(nid, 0, 42)
+    old_faiss = db.replace_chunks(nid, [
+        {"heading": "B", "content": "b", "content_hash": "c2",
+         "word_count": 1, "chunk_idx": 0},
+    ])
+    assert old_faiss == [42]
+    db.close()
+
+
+def test_get_chunks_by_faiss_indices(tmp_path):
+    db = BrainDB(tmp_path / "test.db")
+    nid = _make_db_note(db)
+    db.replace_chunks(nid, [
+        {"heading": "H", "content": "c", "content_hash": "ch",
+         "word_count": 1, "chunk_idx": 0},
+    ])
+    db.set_chunk_faiss_idx(nid, 0, 99)
+    results = db.get_chunks_by_faiss_indices([99])
+    assert len(results) == 1
+    assert results[0]["heading"] == "H"
+    assert results[0]["note_title"] == "Long Note"
+    assert results[0]["note_path"] == "long.md"
+    db.close()
+
+
+def test_delete_note_cascades_chunks(tmp_path):
+    db = BrainDB(tmp_path / "test.db")
+    nid = _make_db_note(db)
+    db.replace_chunks(nid, [
+        {"heading": "X", "content": "y", "content_hash": "cz",
+         "word_count": 1, "chunk_idx": 0},
+    ])
+    db.delete_note("long.md")
+    count = db.execute("SELECT COUNT(*) FROM chunks WHERE note_id=?", (nid,)).fetchone()[0]
+    assert count == 0
+    db.close()

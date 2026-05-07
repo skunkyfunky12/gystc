@@ -343,3 +343,68 @@ class BrainDB:
         with self._lock:
             row = self._conn.execute("SELECT content_hash FROM notes WHERE path=?", (path,)).fetchone()
             return row["content_hash"] if row else None
+
+    # ------------------------------------------------------------------
+    # Chunk methods
+    # ------------------------------------------------------------------
+
+    def replace_chunks(self, note_id: int, chunks: list[dict]) -> list[int]:
+        """Delete old chunks, insert new ones. Returns old faiss_idx values to remove."""
+        with self._lock:
+            old_faiss = [
+                r["faiss_idx"] for r in
+                self._conn.execute(
+                    "SELECT faiss_idx FROM chunks WHERE note_id=? AND faiss_idx IS NOT NULL",
+                    (note_id,),
+                ).fetchall()
+            ]
+            self._conn.execute("DELETE FROM chunks WHERE note_id=?", (note_id,))
+            for chunk in chunks:
+                self._conn.execute(
+                    """INSERT INTO chunks (note_id, heading, content, content_hash, word_count, chunk_idx)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (note_id, chunk["heading"], chunk["content"], chunk["content_hash"],
+                     chunk["word_count"], chunk["chunk_idx"]),
+                )
+            self._conn.commit()
+            return old_faiss
+
+    def set_chunk_faiss_idx(self, note_id: int, chunk_idx: int, faiss_idx: int) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE chunks SET faiss_idx=? WHERE note_id=? AND chunk_idx=?",
+                (faiss_idx, note_id, chunk_idx),
+            )
+            self._conn.commit()
+
+    def get_chunks_for_note(self, note_id: int) -> list[sqlite3.Row]:
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM chunks WHERE note_id=? ORDER BY chunk_idx", (note_id,)
+            ).fetchall()
+
+    def get_chunks_by_faiss_indices(self, indices: list[int]) -> list[sqlite3.Row]:
+        if not indices:
+            return []
+        placeholders = ",".join("?" for _ in indices)
+        with self._lock:
+            return self._conn.execute(
+                f"""SELECT c.*, n.title AS note_title, n.path AS note_path,
+                           n.region_idx AS note_region_idx
+                    FROM chunks c JOIN notes n ON c.note_id = n.id
+                    WHERE c.faiss_idx IN ({placeholders})""",
+                tuple(indices),
+            ).fetchall()
+
+    def delete_chunks_for_note(self, note_id: int) -> list[int]:
+        with self._lock:
+            old_faiss = [
+                r["faiss_idx"] for r in
+                self._conn.execute(
+                    "SELECT faiss_idx FROM chunks WHERE note_id=? AND faiss_idx IS NOT NULL",
+                    (note_id,),
+                ).fetchall()
+            ]
+            self._conn.execute("DELETE FROM chunks WHERE note_id=?", (note_id,))
+            self._conn.commit()
+            return old_faiss

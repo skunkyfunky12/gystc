@@ -61,3 +61,31 @@ def test_scan_vault_skips_obsidian_dir(tmp_vault):
     notes = scan_vault(tmp_vault, folder_to_region={})
     titles = {n["title"] for n in notes}
     assert "config" not in titles
+
+
+# -----------------------------------------------------------------------
+# Pipeline integration test
+# -----------------------------------------------------------------------
+from brain_mcp.storage.database import BrainDB
+from brain_mcp.indexer.vector_store import VectorStore
+from brain_mcp.indexer.pipeline import index_vault
+
+
+def test_pipeline_chunks_long_notes(tmp_path, mock_embedder):
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    filler = " ".join(["word"] * 250)
+    long_content = f"Intro.\n{filler}\n\n## Architecture\n\n{filler}\n\n## Testing\n\n{filler}\n#brain/praefrontaler-cortex"
+    (vault / "long.md").write_text(long_content, encoding="utf-8")
+    (vault / "short.md").write_text("Short note.\n#brain/hippocampus", encoding="utf-8")
+    db = BrainDB(tmp_path / "test.db")
+    vectors = VectorStore(dimension=384)
+    count = index_vault(db, vectors, mock_embedder, vault, {})
+    assert count == 2  # both notes embedded
+    chunks = db.get_chunks_for_note(db.get_note_by_path("long.md")["id"])
+    assert len(chunks) >= 2
+    assert all(c["faiss_idx"] is not None for c in chunks)
+    short_chunks = db.get_chunks_for_note(db.get_note_by_path("short.md")["id"])
+    assert len(short_chunks) == 0
+    assert vectors.size > 2  # notes + chunks
+    db.close()
