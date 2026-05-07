@@ -2,11 +2,20 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from typing import Protocol, runtime_checkable
 
 from brain_mcp.indexer.embedder import EmbeddingBackend
 from brain_mcp.indexer.vector_store import VectorStore
 from brain_mcp.storage.database import BrainDB
 from brain_mcp.tools.recent import REGION_NAMES, resolve_region_idx
+
+
+@runtime_checkable
+class ReRanker(Protocol):
+    """Optional re-ranker for post-RRF refinement.
+    Planned for when vault grows past ~5000 notes (cross-encoder model)."""
+
+    def rerank(self, query: str, candidates: list[dict]) -> list[dict]: ...
 
 
 def _safe_parse_tags(tags_str: str | None) -> list[str]:
@@ -40,6 +49,7 @@ def handle_brain_retrieve(
     region: str | None = None,
     limit: int = 10,
     threshold: float = 0.3,
+    reranker: ReRanker | None = None,
 ) -> list[dict]:
     query = query[:1000]
     limit = max(1, min(limit, 100))
@@ -139,5 +149,8 @@ def handle_brain_retrieve(
         results.append(entry)
         if len(results) >= limit:
             break
+
+    if reranker is not None:
+        results = reranker.rerank(query, results)
 
     return results
