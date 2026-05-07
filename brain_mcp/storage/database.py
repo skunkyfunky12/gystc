@@ -40,7 +40,15 @@ class BrainDB:
         tags_json = json.dumps(tags)
         with self._lock:
             # Grab old FTS data before upsert so we can remove stale index entry
-            old = self._conn.execute("SELECT id, title, content FROM notes WHERE path=?", (path,)).fetchone()
+            old = self._conn.execute(
+                "SELECT id, title, content, content_hash, region_idx, tags, word_count FROM notes WHERE path=?",
+                (path,),
+            ).fetchone()
+            if old is not None and old["content_hash"] != content_hash:
+                self.save_version(
+                    old["id"], old["content"], old["title"], old["region_idx"],
+                    old["tags"], old["word_count"], old["content_hash"],
+                )
             self._conn.execute(
                 """INSERT INTO notes (path, title, content, content_hash, region_idx, tags, word_count, created_at, modified_at, faiss_idx)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -63,6 +71,59 @@ class BrainDB:
             self._conn.execute("INSERT INTO notes_fts(rowid, title, content) VALUES (?, ?, ?)", (note_id, title, content))
             self._conn.commit()
         return note_id
+
+    def save_version(self, note_id: int, content: str, title: str, region_idx: int,
+                     tags: str, word_count: int, content_hash: str,
+                     reason: str = "") -> int:
+        with self._lock:
+            existing = self._conn.execute(
+                "SELECT id FROM note_versions WHERE note_id=? AND content_hash=?",
+                (note_id, content_hash),
+            ).fetchone()
+            if existing:
+                return existing["id"]
+            now = datetime.now(timezone.utc).isoformat()
+            cursor = self._conn.execute(
+                """INSERT INTO note_versions
+                   (note_id, content_hash, content, title, region_idx, tags, word_count, versioned_at, reason)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (note_id, content_hash, content, title, region_idx, tags, word_count, now, reason),
+            )
+            self._conn.commit()
+            return cursor.lastrowid
+
+    def get_versions(self, note_id: int, limit: int = 20) -> list[sqlite3.Row]:
+        with self._lock:
+            return self._conn.execute(
+                """SELECT id, content_hash, title, word_count, versioned_at, reason
+                   FROM note_versions WHERE note_id=?
+                   ORDER BY versioned_at DESC LIMIT ?""",
+                (note_id, limit),
+            ).fetchall()
+
+    def get_version(self, version_id: int) -> sqlite3.Row | None:
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM note_versions WHERE id=?", (version_id,)
+            ).fetchone()
+
+    def prune_versions(self, note_id: int, max_versions: int = 50) -> int:
+        with self._lock:
+            count = self._conn.execute(
+                "SELECT COUNT(*) FROM note_versions WHERE note_id=?", (note_id,)
+            ).fetchone()[0]
+            if count <= max_versions:
+                return 0
+            to_delete = count - max_versions
+            self._conn.execute(
+                """DELETE FROM note_versions WHERE id IN (
+                    SELECT id FROM note_versions WHERE note_id=?
+                    ORDER BY versioned_at ASC LIMIT ?
+                )""",
+                (note_id, to_delete),
+            )
+            self._conn.commit()
+            return to_delete
 
     def set_faiss_idx(self, note_id: int, faiss_idx: int) -> None:
         with self._lock:
