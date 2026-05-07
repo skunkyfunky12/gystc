@@ -28,7 +28,7 @@ class SentenceTransformerBackend:
     ) -> None:
         self._model_name = model_name
         self._model = None
-        self._load_lock = threading.Lock()
+        self._load_lock = threading.RLock()
         self._ready = threading.Event()
         if eager:
             self._load()
@@ -42,12 +42,16 @@ class SentenceTransformerBackend:
             print(
                 f"Loading embedding model: {self._model_name}...", file=sys.stderr
             )
-            from sentence_transformers import SentenceTransformer
-
-            self._model = SentenceTransformer(self._model_name)
-            elapsed = time.perf_counter() - t0
-            print(f"Model loaded in {elapsed:.1f}s.", file=sys.stderr)
-            self._ready.set()
+            try:
+                from sentence_transformers import SentenceTransformer
+                self._model = SentenceTransformer(self._model_name)
+                elapsed = time.perf_counter() - t0
+                print(f"Model loaded in {elapsed:.1f}s.", file=sys.stderr)
+                self._ready.set()
+            except Exception as exc:
+                import traceback
+                print(f"ERROR loading embedding model: {exc}", file=sys.stderr)
+                traceback.print_exc(file=sys.stderr)
 
     def _get_model(self):
         """Thread-safe model accessor. Loads on first call, returns cached reference."""
@@ -69,7 +73,7 @@ class SentenceTransformerBackend:
     def dimension(self) -> int:
         """Return embedding dimension. Dynamic when model is loaded, default 384 otherwise."""
         if self._model is not None:
-            return self._model.get_sentence_embedding_dimension()
+            return self._model.get_embedding_dimension()
         return 384  # default for paraphrase-multilingual-MiniLM-L12-v2
 
     def embed(self, texts: list[str]) -> np.ndarray:

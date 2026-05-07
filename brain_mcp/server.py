@@ -82,6 +82,33 @@ def _handle_file_change(state: BrainState, path: str, event_type: str) -> None:
         print(f"Embedding error for {rel}: {exc}", file=sys.stderr)
 
 
+def _background_startup(state: BrainState, model_thread: threading.Thread) -> None:
+    """Run model loading + indexing in background so MCP server starts instantly."""
+    try:
+        vault_exists = state.config.vault_path is not None and state.config.vault_path.is_dir()
+        model_thread.join(timeout=120)
+        if model_thread.is_alive():
+            print("WARNING: Model still loading after 120s, skipping startup indexing.", file=sys.stderr)
+            return
+        if not state.embedder.is_ready:
+            print("ERROR: Model thread finished but model not ready — _load() likely crashed. Check stderr above.", file=sys.stderr)
+            return
+        if vault_exists and state.config.index_on_startup:
+            try:
+                _index_vault(state)
+            except Exception as exc:
+                print(f"ERROR: Startup indexing failed: {exc}", file=sys.stderr)
+        if vault_exists and state.config.auto_index:
+            watcher = BrainWatcher(state.config.vault_path, lambda p, e: _handle_file_change(state, p, e))
+            watcher.start()
+            state.watcher = watcher
+        print("Background startup complete.", file=sys.stderr)
+    except Exception as exc:
+        import traceback
+        print(f"ERROR: Background startup crashed: {exc}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+
+
 @asynccontextmanager
 async def brain_lifespan(server: FastMCP) -> AsyncIterator[BrainState]:
     import time
@@ -89,7 +116,6 @@ async def brain_lifespan(server: FastMCP) -> AsyncIterator[BrainState]:
     config = load_config()
     config.data_dir.mkdir(parents=True, exist_ok=True)
     db = BrainDB(config.db_path)
-    # Eager model load in background thread to avoid blocking server start
     embedder = SentenceTransformerBackend(config.model_name)
     model_thread = threading.Thread(target=embedder._load, daemon=True)
     model_thread.start()
@@ -99,24 +125,8 @@ async def brain_lifespan(server: FastMCP) -> AsyncIterator[BrainState]:
     print(f"Brain MCP Server started in {startup_ms}ms. Vault: {config.vault_path}", file=sys.stderr)
     print(f"DB: {config.db_path} | Index: {vectors.size} vectors", file=sys.stderr)
 
-    # Startup indexing — wait for model first since indexing needs it
-    vault_exists = config.vault_path is not None and config.vault_path.is_dir()
-    if vault_exists and config.index_on_startup:
-        model_thread.join(timeout=120)
-        if model_thread.is_alive():
-            print("WARNING: Model still loading after 120s, skipping startup indexing.", file=sys.stderr)
-        else:
-            try:
-                _index_vault(state)
-            except Exception as exc:
-                print(f"ERROR: Startup indexing failed: {exc}", file=sys.stderr)
-                print("Server will start without pre-indexed vault data.", file=sys.stderr)
-
-    # File watcher
-    if vault_exists and config.auto_index:
-        watcher = BrainWatcher(config.vault_path, lambda p, e: _handle_file_change(state, p, e))
-        watcher.start()
-        state.watcher = watcher
+    bg = threading.Thread(target=_background_startup, args=(state, model_thread), daemon=True)
+    bg.start()
 
     try:
         yield state
