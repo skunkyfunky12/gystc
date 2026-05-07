@@ -13,7 +13,7 @@ DEFAULT_DATA_DIR = Path.home() / ".neural-brain"
 
 KNOWN_KEYS = {
     "vault_path", "model_name", "embedding_backend", "auto_index",
-    "index_on_startup", "folder_to_region", "log_level",
+    "index_on_startup", "folder_to_region", "log_level", "auto_context",
 }
 VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
 
@@ -28,6 +28,7 @@ class BrainConfig:
     index_on_startup: bool = True
     folder_to_region: dict[str, int] = field(default_factory=dict)
     log_level: str = "INFO"
+    auto_context: bool = True
 
     @property
     def db_path(self) -> Path:
@@ -70,6 +71,7 @@ def save_config(config: BrainConfig, path: Path | None = None) -> Path:
         "index_on_startup": config.index_on_startup,
         "folder_to_region": config.folder_to_region,
         "log_level": config.log_level,
+        "auto_context": config.auto_context,
     }
     fd, tmp = tempfile.mkstemp(dir=config.data_dir, suffix=".tmp")
     try:
@@ -115,4 +117,5 @@ def load_config(config_dir: Path | None = None) -> BrainConfig:
         index_on_startup=file_data.get("index_on_startup", True),
         folder_to_region=file_data.get("folder_to_region", {}),
         log_level=os.environ.get("BRAIN_LOG_LEVEL") or file_data.get("log_level", "INFO"),
+        auto_context=file_data.get("auto_context", True),
     )
