@@ -30,7 +30,7 @@ class BrainConfig:
     folder_to_region: dict[str, int] = field(default_factory=dict)
     log_level: str = "INFO"
     auto_context: bool = True
-    reranker: str | None = None
+    reranker: str | None = "cross-encoder"
 
     @property
     def db_path(self) -> Path:

@@ -22,6 +22,7 @@ from brain_mcp.tools.related import handle_brain_related
 from brain_mcp.tools.context import handle_brain_context
 from brain_mcp.tools.classify_tool import handle_brain_classify, handle_brain_classify_feedback
 from brain_mcp.tools.versioning import handle_brain_history, handle_brain_diff, handle_brain_rollback
+from brain_mcp.indexer.reranker import CrossEncoderReRanker
 
 @dataclass
 class BrainState:
@@ -30,6 +31,7 @@ class BrainState:
     vectors: VectorStore
     embedder: SentenceTransformerBackend
     watcher: BrainWatcher | None = None
+    reranker: CrossEncoderReRanker | None = None
 
 
 def _index_vault(state: BrainState) -> None:
@@ -121,7 +123,11 @@ async def brain_lifespan(server: FastMCP) -> AsyncIterator[BrainState]:
     model_thread = threading.Thread(target=embedder._load, daemon=True)
     model_thread.start()
     vectors = VectorStore.load(config.index_path, dimension=embedder.dimension)
-    state = BrainState(config=config, db=db, vectors=vectors, embedder=embedder)
+    reranker = None
+    if config.reranker == "cross-encoder":
+        reranker = CrossEncoderReRanker()
+        reranker.start_loading()
+    state = BrainState(config=config, db=db, vectors=vectors, embedder=embedder, reranker=reranker)
     startup_ms = int((time.perf_counter() - t0) * 1000)
     print(f"Brain MCP Server started in {startup_ms}ms. Vault: {config.vault_path}", file=sys.stderr)
     print(f"DB: {config.db_path} | Index: {vectors.size} vectors", file=sys.stderr)
@@ -232,7 +238,7 @@ def brain_retrieve(query: str, region: str | None = None, limit: int = 10, thres
     state: BrainState = mcp.get_context().request_context.lifespan_context
     if not state.embedder.wait_ready(timeout=90):
         return [{"error": "Embedding model still loading. Use brain_status to check, or try brain_recent/brain_regions instead."}]
-    return handle_brain_retrieve(state.db, state.vectors, state.embedder, query=query, region=region, limit=limit, threshold=threshold)
+    return handle_brain_retrieve(state.db, state.vectors, state.embedder, query=query, region=region, limit=limit, threshold=threshold, reranker=state.reranker)
 
 @mcp.tool()
 def brain_store(title: str, content: str, region: str | None = None, region_idx: int | None = None,
@@ -402,6 +408,8 @@ def brain_status() -> dict:
         "edge_types": edge_types,
         "regions": region_dist,
         "model_loaded": state.embedder.is_ready,
+        "reranker_loaded": state.reranker.is_ready if state.reranker else False,
+        "reranker_enabled": state.reranker is not None,
         "vault_path": str(state.config.vault_path),
     }
 
