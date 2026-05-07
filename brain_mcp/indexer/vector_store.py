@@ -34,6 +34,13 @@ class VectorStore:
     # Properties
     # ------------------------------------------------------------------
 
+    def reset(self) -> None:
+        """Clear all vectors and reset IDs. Used by force-reindex."""
+        with self._lock:
+            base = faiss.IndexFlatIP(self._dimension)
+            self._index = faiss.IndexIDMap2(base)
+            self._next_id = 0
+
     @property
     def size(self) -> int:
         """Number of vectors currently in the index."""

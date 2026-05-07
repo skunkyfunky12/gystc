@@ -27,7 +27,9 @@ def index_vault(
     notes = scan_vault(vault_path, folder_to_region)
     title_to_id: dict[str, int] = {}
     to_embed: list[tuple[int, str]] = []
-    old_faiss_ids: list[int] = []
+
+    if force:
+        vectors.reset()
 
     for note in notes:
         if not force:
@@ -36,12 +38,9 @@ def index_vault(
                 row = db.get_note_by_path(note["path"])
                 if row:
                     title_to_id[note["title"]] = row["id"]
+                    if row["faiss_idx"] is None:
+                        to_embed.append((row["id"], note["content"]))
                 continue
-
-        # Collect old FAISS index before upsert to remove ghost vectors
-        old_row = db.get_note_by_path(note["path"])
-        if old_row and old_row["faiss_idx"] is not None:
-            old_faiss_ids.append(old_row["faiss_idx"])
 
         note_id = db.upsert_note(
             path=note["path"], title=note["title"], content=note["content"],
@@ -60,15 +59,10 @@ def index_vault(
             faiss_ids = vectors.add(vecs)
             for (note_id, _), fid in zip(to_embed, faiss_ids):
                 db.set_faiss_idx(note_id, fid)
-            # Only remove old vectors after new ones are established
-            if old_faiss_ids:
-                vectors.remove(old_faiss_ids)
             elapsed = time.time() - t0
             print(f"Indexed {len(to_embed)} new/changed notes in {elapsed:.1f}s.", file=sys.stderr)
         except Exception as exc:
             print(f"Embedding error during indexing: {exc}", file=sys.stderr)
-    elif old_faiss_ids:
-        vectors.remove(old_faiss_ids)
 
     # Build edges from backlinks
     for note in notes:

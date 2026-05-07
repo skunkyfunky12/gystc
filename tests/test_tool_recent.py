@@ -1,16 +1,22 @@
+from datetime import datetime, timedelta, timezone
+
 from brain_mcp.storage.database import BrainDB
 from brain_mcp.tools.recent import handle_brain_recent
 
 def _seed_db(db):
+    now = datetime.now(timezone.utc)
+    yesterday = (now - timedelta(days=1)).isoformat()
+    two_days = (now - timedelta(days=2)).isoformat()
+    old = (now - timedelta(days=30)).isoformat()
     db.upsert_note(path="a.md", title="Recent Note", content="c", content_hash="h1",
                    region_idx=3, tags=["#test"], word_count=10,
-                   created_at="2026-04-18", modified_at="2026-04-18T10:00:00+00:00")
+                   created_at=yesterday[:10], modified_at=yesterday)
     db.upsert_note(path="b.md", title="Old Note", content="c", content_hash="h2",
                    region_idx=0, tags=[], word_count=5,
-                   created_at="2025-01-01", modified_at="2025-01-01T10:00:00+00:00")
+                   created_at=old[:10], modified_at=old)
     db.upsert_note(path="c.md", title="Also Recent", content="c", content_hash="h3",
                    region_idx=3, tags=[], word_count=8,
-                   created_at="2026-04-17", modified_at="2026-04-17T10:00:00+00:00")
+                   created_at=two_days[:10], modified_at=two_days)
 
 def test_brain_recent_default(tmp_path):
     db = BrainDB(tmp_path / "test.db")
