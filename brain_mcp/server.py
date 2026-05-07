@@ -144,11 +144,54 @@ async def brain_lifespan(server: FastMCP) -> AsyncIterator[BrainState]:
             print(f"ERROR: Failed to close database: {exc}", file=sys.stderr)
         print("Brain MCP Server stopped.", file=sys.stderr)
 
-mcp = FastMCP("Neural Brain", lifespan=brain_lifespan)
+BRAIN_INSTRUCTIONS = """
+You have access to a persistent knowledge vault — a long-term memory organized like a brain.
+The vault contains notes (neurons) connected by backlinks (synapses), organized into 12 brain regions.
+
+HOW TO USE YOUR BRAIN:
+- When you need knowledge about a topic, technology, or project: call brain_retrieve with a natural language query.
+- When you start working on a codebase or task: call brain_context with the file paths or a task description.
+- When you learn something worth remembering: call brain_store to save it as a note.
+- When you want to see what's been worked on recently: call brain_recent.
+- When exploring connections between topics: call brain_related.
+
+WHEN TO SEARCH PROACTIVELY:
+- You encounter a project, tool, or concept that might have vault notes — search before answering from general knowledge.
+- The user asks about a previous decision, architecture, or plan — the vault likely has it.
+- You're about to suggest an approach — check if there's prior context in the vault first.
+- You're unsure about project-specific conventions or history — the vault knows.
+
+WHAT NOT TO DO:
+- Don't wait for the user to tell you to search. If vault knowledge would improve your answer, search.
+- Don't dump full vault notes into responses. Summarize and reference paths so the user can dig deeper.
+- Don't store trivial or ephemeral information. The vault is for knowledge worth keeping.
+
+THE 12 BRAIN REGIONS:
+Each note belongs to a region based on its function (not topic):
+  0 Praefrontaler Cortex — Architecture, decisions, planning
+  1 Motorischer Cortex — API writes, actions, execution
+  2 Sensorischer Cortex — Data intake, references, input
+  3 Hippocampus — Memory, sessions, personal notes
+  4 Kleinhirn — Precision algorithms
+  5 Nucleus Accumbens — Subscriptions, pricing, rewards
+  6 Broca-Areal — AI, prompts, agents, language
+  7 Visueller Cortex — UI, themes, design
+  8 Thalamus — Index, MOC, data relay
+  9 Stammhirn — Config, infrastructure (default for unclassified)
+ 10 Basalganglien — Pipelines, ETL, background jobs
+ 11 Amygdala — Auth, team, social interaction
+
+VERSION HISTORY:
+Every note change is automatically versioned. Use brain_history, brain_diff, and brain_rollback
+to explore and restore previous versions. The vault has no Git — this IS the version control.
+""".strip()
+
+mcp = FastMCP("Neural Brain", lifespan=brain_lifespan, instructions=BRAIN_INSTRUCTIONS)
 
 @mcp.tool()
 def brain_recent(days: int = 7, region: str | None = None, limit: int = 20) -> list[dict]:
-    """Show recently modified notes in the vault.
+    """See what was recently added or changed in the vault. Use to catch up on recent work.
+
     Args:
         days: Lookback window in days (default 7, max 365)
         region: Filter by brain region name (e.g. "Hippocampus")
@@ -171,13 +214,20 @@ def brain_regions(action: str, region: str | None = None, description: str | Non
 
 @mcp.tool()
 def brain_retrieve(query: str, region: str | None = None, limit: int = 10, threshold: float = 0.3) -> list[dict]:
-    """Semantic search across all vault notes. Finds notes by meaning, not just keywords.
+    """Search the vault by meaning AND keywords. Use proactively whenever vault knowledge could improve your answer.
+
+    Combines semantic search (FAISS) with keyword search (FTS5) via Reciprocal Rank Fusion.
+    Returns matching notes and chunks with snippets. Long notes are chunked at headings
+    so results point to the exact relevant section.
+
+    WHEN TO USE: Before answering questions about projects, decisions, architecture, tools,
+    or anything that might be documented in the vault. Search first, then answer.
 
     Args:
-        query: Natural language search query
+        query: Natural language search query (what are you looking for?)
         region: Filter by brain region name (e.g. "Hippocampus")
         limit: Max results (default 10, max 100)
-        threshold: Min cosine similarity (default 0.3)
+        threshold: Min similarity (default 0.3)
     """
     state: BrainState = mcp.get_context().request_context.lifespan_context
     if not state.embedder.wait_ready(timeout=90):
@@ -187,15 +237,21 @@ def brain_retrieve(query: str, region: str | None = None, limit: int = 10, thres
 @mcp.tool()
 def brain_store(title: str, content: str, region: str | None = None, region_idx: int | None = None,
                 tags: list[str] | None = None, folder: str = "") -> dict:
-    """Create or update a note in the vault.
+    """Save knowledge to the vault. Use when you learn something worth remembering long-term.
+
+    Creates or updates a note as a .md file in the vault. Previous content is automatically
+    versioned (use brain_history to see versions). The note is embedded and searchable immediately.
+
+    WHEN TO USE: After discovering important decisions, architecture patterns, project context,
+    or anything the user might need again in future sessions. Don't store trivial or ephemeral info.
 
     Args:
         title: Note title (becomes filename)
-        content: Markdown content
+        content: Markdown content (use headings, links, and structure)
         region: Brain region name (auto-detected if omitted)
-        region_idx: Region index (overrides name)
+        region_idx: Region index 0-11 (overrides name)
         tags: Additional tags (max 20)
-        folder: Subfolder in vault
+        folder: Subfolder in vault (e.g. "02 Projekte")
     """
     state: BrainState = mcp.get_context().request_context.lifespan_context
     if state.config.vault_path is None:
@@ -208,7 +264,9 @@ def brain_store(title: str, content: str, region: str | None = None, region_idx:
 
 @mcp.tool()
 def brain_related(title: str | None = None, path: str | None = None, limit: int = 10) -> list[dict] | dict:
-    """Find notes related to a specific note by meaning or backlinks.
+    """Explore connections from a specific note. Finds related notes via backlinks and semantic similarity.
+
+    Use to discover related knowledge, follow thought chains, or understand how topics connect.
 
     Args:
         title: Note title to find relations for
@@ -223,12 +281,19 @@ def brain_related(title: str | None = None, path: str | None = None, limit: int 
 @mcp.tool()
 def brain_context(file_paths: list[str] | None = None, task_description: str | None = None,
                   depth: int = 1, max_notes: int = 10) -> list[dict] | dict:
-    """Get contextually relevant notes for current work. Combines file proximity and semantic search.
+    """Load vault context relevant to your current work. Use when switching tasks or starting new work.
+
+    Combines the files you're working on with semantic search and backlink graph traversal
+    to find the most relevant vault notes. Better than brain_retrieve when you have specific
+    files or a task description rather than a search query.
+
+    WHEN TO USE: At the start of a task, when switching topics, or when you need
+    broader context about the area you're working in.
 
     Args:
-        file_paths: Files currently being edited
-        task_description: What you are doing
-        depth: Backlink graph hops 1-3 (default 1)
+        file_paths: Files currently being edited (vault paths or project paths)
+        task_description: What you are doing (natural language)
+        depth: Backlink graph hops 1-3 (default 1, higher = broader context)
         max_notes: Max notes returned (default 10, max 100)
     """
     state: BrainState = mcp.get_context().request_context.lifespan_context
