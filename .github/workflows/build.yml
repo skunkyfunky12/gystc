@@ -15,10 +15,8 @@ jobs:
         include:
           - os: windows-latest
             artifact: gystc-windows
-            spec: gystc.spec
           - os: macos-latest
             artifact: gystc-macos
-            spec: gystc.spec
 
     runs-on: ${{ matrix.os }}
 
@@ -34,21 +32,30 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install pyinstaller
-          pip install PyQt6 PyQt6-WebEngine PyOpenGL PyOpenGL-accelerate numpy scipy requests
+          pip install PyQt6 PyQt6-WebEngine PyOpenGL numpy scipy requests
 
-      - name: Generate macOS icon
+      - name: Install PyOpenGL-accelerate (optional)
+        continue-on-error: true
+        run: pip install PyOpenGL-accelerate
+
+      - name: Generate macOS icon from SVG
         if: runner.os == 'macOS'
         run: |
+          brew install imagemagick
           mkdir -p gystc-icon.iconset
-          sips -z 16 16 assets/gystc-icon.ico --out gystc-icon.iconset/icon_16x16.png 2>/dev/null || true
-          sips -z 32 32 assets/gystc-icon.ico --out gystc-icon.iconset/icon_32x32.png 2>/dev/null || true
-          sips -z 128 128 assets/gystc-icon.ico --out gystc-icon.iconset/icon_128x128.png 2>/dev/null || true
-          sips -z 256 256 assets/gystc-icon.ico --out gystc-icon.iconset/icon_256x256.png 2>/dev/null || true
-          sips -z 512 512 assets/gystc-icon.ico --out gystc-icon.iconset/icon_512x512.png 2>/dev/null || true
-          iconutil -c icns gystc-icon.iconset -o assets/gystc-icon.icns 2>/dev/null || echo "iconutil failed, using ico fallback"
+          for size in 16 32 64 128 256 512; do
+            magick assets/gystc-icon.svg -resize ${size}x${size} gystc-icon.iconset/icon_${size}x${size}.png
+          done
+          for size in 32 64 256 512 1024; do
+            half=$((size / 2))
+            magick assets/gystc-icon.svg -resize ${size}x${size} gystc-icon.iconset/icon_${half}x${half}@2x.png
+          done
+          iconutil -c icns gystc-icon.iconset -o assets/gystc-icon.icns
+          echo "Generated .icns from SVG"
+          ls -la assets/gystc-icon.icns
 
       - name: Build with PyInstaller
-        run: pyinstaller ${{ matrix.spec }} --noconfirm
+        run: pyinstaller gystc.spec --noconfirm
 
       - name: Verify build output
         shell: bash
@@ -57,27 +64,47 @@ jobs:
           if [ -d "dist/GYSTC Dashboard.app" ]; then
             echo "macOS .app bundle found"
             ls -la "dist/GYSTC Dashboard.app/Contents/MacOS/" || true
-          else
+            ls -la "dist/GYSTC Dashboard.app/Contents/Resources/" || true
+          elif [ -d "dist/GYSTC Dashboard" ]; then
             echo "Windows dist found"
             ls -la "dist/GYSTC Dashboard/"
-            ls "dist/GYSTC Dashboard/_internal/brain/web/" || true
           fi
 
-      - name: Create ZIP archive
+      - name: Create Windows ZIP
+        if: runner.os == 'Windows'
         shell: bash
         run: |
           cd dist
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            7z a -tzip "../${{ matrix.artifact }}.zip" "GYSTC Dashboard/"
-          else
-            zip -r -y "../${{ matrix.artifact }}.zip" "GYSTC Dashboard.app/" "GYSTC Dashboard/" 2>/dev/null || zip -r -y "../${{ matrix.artifact }}.zip" "GYSTC Dashboard/"
-          fi
+          7z a -tzip "../${{ matrix.artifact }}.zip" "GYSTC Dashboard/"
+
+      - name: Create macOS DMG
+        if: runner.os == 'macOS'
+        run: |
+          brew install create-dmg
+          create-dmg \
+            --volname "GYSTC Dashboard" \
+            --volicon "assets/gystc-icon.icns" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "GYSTC Dashboard.app" 150 190 \
+            --app-drop-link 450 190 \
+            --hide-extension "GYSTC Dashboard.app" \
+            --no-internet-enable \
+            "${{ matrix.artifact }}.dmg" \
+            "dist/GYSTC Dashboard.app" \
+          || {
+            echo "create-dmg failed, falling back to hdiutil"
+            hdiutil create -volname "GYSTC Dashboard" -srcfolder "dist/GYSTC Dashboard.app" -ov -format UDZO "${{ matrix.artifact }}.dmg"
+          }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}.zip
+          path: |
+            ${{ matrix.artifact }}.zip
+            ${{ matrix.artifact }}.dmg
           retention-days: 30
 
   release:
@@ -97,4 +124,4 @@ jobs:
           generate_release_notes: true
           files: |
             artifacts/gystc-windows/gystc-windows.zip
-            artifacts/gystc-macos/gystc-macos.zip
+            artifacts/gystc-macos/gystc-macos.dmg

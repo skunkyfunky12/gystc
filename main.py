@@ -23,10 +23,19 @@ from integrations.obsidian import open_node_in_obsidian
 from setup_wizard import needs_setup, run_setup
 
 
+def _find_icon() -> Path | None:
+    base = Path(__file__).parent / "assets"
+    for ext in (".icns", ".ico", ".svg"):
+        p = base / f"gystc-icon{ext}"
+        if p.exists():
+            return p
+    return None
+
+
 def main():
     app = QApplication(sys.argv)
-    icon_path = Path(__file__).parent / "assets" / "gystc-icon.ico"
-    if icon_path.exists():
+    icon_path = _find_icon()
+    if icon_path:
         app.setWindowIcon(QIcon(str(icon_path)))
 
     if needs_setup():

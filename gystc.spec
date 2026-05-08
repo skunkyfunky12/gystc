@@ -108,5 +108,9 @@ if IS_MAC:
             'CFBundleDisplayName': 'GYSTC Dashboard',
             'CFBundleShortVersionString': '1.0.0',
             'NSHighResolutionCapable': True,
+            'NSRequiresAquaSystemAppearance': False,
+            'LSEnvironment': {
+                'QTWEBENGINE_CHROMIUM_FLAGS': '--in-process-gpu',
+            },
         },
     )

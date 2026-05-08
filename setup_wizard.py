@@ -1,6 +1,7 @@
 """First-run setup wizard -- shown when no ~/.gystc/config.json exists."""
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -17,38 +18,44 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+IS_MAC = sys.platform == "darwin"
+
 CONFIG_DIR = Path.home() / ".gystc"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 CLAUDE_DIR = Path.home() / ".claude"
 MCP_CONFIG_PATHS = [CLAUDE_DIR / ".mcp.json", Path.home() / ".claude.json"]
 
-STYLE = """
-QDialog { background: #0A0E15; }
-QLabel { color: #E6EEFB; font-family: 'Segoe UI', sans-serif; }
-QLabel#title { font-size: 22px; font-weight: bold; color: #5EE9F0; }
-QLabel#subtitle { font-size: 12px; color: #A7B4CC; }
-QLabel#section { font-size: 13px; font-weight: 600; color: #5EE9F0;
-                 margin-top: 16px; }
-QLabel#hint { font-size: 11px; color: #5E6A83; }
-QLineEdit {
+_FONT_FAMILY = "-apple-system, 'Helvetica Neue', sans-serif" if IS_MAC else "'Segoe UI', sans-serif"
+_MONO_FAMILY = "'SF Mono', Menlo, monospace" if IS_MAC else "'JetBrains Mono', monospace"
+_VAULT_PLACEHOLDER = "/Users/.../My Vault" if IS_MAC else "C:\\Users\\...\\My Vault"
+
+STYLE = f"""
+QDialog {{ background: #0A0E15; }}
+QLabel {{ color: #E6EEFB; font-family: {_FONT_FAMILY}; }}
+QLabel#title {{ font-size: 22px; font-weight: bold; color: #5EE9F0; }}
+QLabel#subtitle {{ font-size: 12px; color: #A7B4CC; }}
+QLabel#section {{ font-size: 13px; font-weight: 600; color: #5EE9F0;
+                 margin-top: 16px; }}
+QLabel#hint {{ font-size: 11px; color: #5E6A83; }}
+QLineEdit {{
     background: #101623; border: 1px solid rgba(180,210,255,0.12);
     border-radius: 6px; padding: 8px 12px;
-    color: #E6EEFB; font-family: 'JetBrains Mono', monospace; font-size: 12px;
-}
-QLineEdit:focus { border-color: rgba(94,233,240,0.4); }
-QPushButton {
+    color: #E6EEFB; font-family: {_MONO_FAMILY}; font-size: 12px;
+}}
+QLineEdit:focus {{ border-color: rgba(94,233,240,0.4); }}
+QPushButton {{
     background: transparent; border: 1px solid rgba(180,210,255,0.15);
     border-radius: 6px; padding: 8px 16px;
-    color: #A7B4CC; font-family: 'JetBrains Mono', monospace; font-size: 12px;
-}
-QPushButton:hover { border-color: rgba(94,233,240,0.35); color: #E6EEFB;
-                    background: rgba(255,255,255,0.03); }
-QPushButton#primary {
+    color: #A7B4CC; font-family: {_MONO_FAMILY}; font-size: 12px;
+}}
+QPushButton:hover {{ border-color: rgba(94,233,240,0.35); color: #E6EEFB;
+                    background: rgba(255,255,255,0.03); }}
+QPushButton#primary {{
     border-color: rgba(94,233,240,0.5); color: #5EE9F0;
-}
-QPushButton#primary:hover {
+}}
+QPushButton#primary:hover {{
     background: rgba(94,233,240,0.1);
-}
+}}
 """
 
 
@@ -83,7 +90,7 @@ class SetupWizard(QDialog):
 
         vault_row = QHBoxLayout()
         self._vault_input = QLineEdit()
-        self._vault_input.setPlaceholderText("C:\\Users\\...\\My Vault")
+        self._vault_input.setPlaceholderText(_VAULT_PLACEHOLDER)
         vault_row.addWidget(self._vault_input, 1)
         browse_btn = QPushButton("Browse")
         browse_btn.clicked.connect(self._browse_vault)
@@ -165,11 +172,22 @@ class SetupWizard(QDialog):
         self._status.setText("Copied to clipboard. Paste into your CLAUDE.md.")
         self._status.setStyleSheet("color: #22C55E;")
 
+    @staticmethod
+    def _find_system_python() -> str:
+        if not IS_MAC:
+            return sys.executable
+        for name in ("python3", "python"):
+            found = shutil.which(name)
+            if found and ".app/" not in found:
+                return found
+        return "python3"
+
     def _install_hooks(self):
         results = []
 
+        python_cmd = self._find_system_python()
         mcp_entry = {
-            "command": sys.executable,
+            "command": python_cmd,
             "args": ["-m", "brain_mcp"],
             "env": {},
         }
@@ -205,7 +223,7 @@ class SetupWizard(QDialog):
                 for h in session_hooks
             )
             if not already:
-                quoted_py = f'"{sys.executable}"' if " " in sys.executable else sys.executable
+                quoted_py = f'"{python_cmd}"' if " " in python_cmd else python_cmd
                 session_hooks.append({
                     "command": f"{quoted_py} -m brain_mcp.hooks.session_start",
                     "description": "GYSTC: load vault context on session start",
@@ -255,10 +273,19 @@ def needs_setup() -> bool:
     return not CONFIG_PATH.exists()
 
 
+def _find_icon() -> Path | None:
+    base = Path(__file__).parent / "assets"
+    for ext in (".icns", ".ico", ".svg"):
+        p = base / f"gystc-icon{ext}"
+        if p.exists():
+            return p
+    return None
+
+
 def run_setup(app: QApplication) -> bool:
-    icon_path = Path(__file__).parent / "assets" / "gystc-icon.ico"
+    icon_path = _find_icon()
     wizard = SetupWizard()
-    if icon_path.exists():
+    if icon_path:
         wizard.setWindowIcon(QIcon(str(icon_path)))
     result = wizard.exec()
     return result == QDialog.DialogCode.Accepted
