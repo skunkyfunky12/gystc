@@ -2,6 +2,7 @@
 
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -133,7 +134,8 @@ class SetupWizard(QDialog):
 
         hint3 = QLabel(
             "Paste CLAUDE.md into your Claude Code settings so Claude knows your brain.\n"
-            "'Install MCP + Hooks' registers the MCP server and session-start hook."
+            "'Install MCP + Hooks' installs the MCP server package, registers it with\n"
+            "Claude, and adds the session-start hook. Requires Python 3.11+."
         )
         hint3.setObjectName("hint")
         hint3.setWordWrap(True)
@@ -178,18 +180,74 @@ class SetupWizard(QDialog):
 
     @staticmethod
     def _find_system_python() -> str:
-        if not IS_MAC:
+        if not IS_MAC and not getattr(sys, "frozen", False):
             return sys.executable
         for name in ("python3", "python"):
             found = shutil.which(name)
-            if found and ".app/" not in found:
+            if found and ".app/" not in found and "_internal" not in found:
                 return found
         return "python3"
 
+    @staticmethod
+    def _check_brain_mcp(python_cmd: str) -> bool:
+        try:
+            r = subprocess.run(
+                [python_cmd, "-c", "import brain_mcp; print('ok')"],
+                capture_output=True, text=True, timeout=10,
+            )
+            return r.returncode == 0 and "ok" in r.stdout
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return False
+
+    @staticmethod
+    def _pip_install_gystc(python_cmd: str) -> tuple[bool, str]:
+        try:
+            r = subprocess.run(
+                [python_cmd, "-m", "pip", "install", "gystc"],
+                capture_output=True, text=True, timeout=300,
+            )
+            if r.returncode == 0:
+                return True, "installed from PyPI"
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        repo_url = "git+https://github.com/skunkyfunky12/neural-brain.git"
+        try:
+            r = subprocess.run(
+                [python_cmd, "-m", "pip", "install", repo_url],
+                capture_output=True, text=True, timeout=300,
+            )
+            if r.returncode == 0:
+                return True, "installed from GitHub"
+            return False, r.stderr.strip().split("\n")[-1][:200]
+        except FileNotFoundError:
+            return False, "Python not found"
+        except subprocess.TimeoutExpired:
+            return False, "install timed out"
+
     def _install_hooks(self):
         results = []
-
         python_cmd = self._find_system_python()
+
+        if not self._check_brain_mcp(python_cmd):
+            self._status.setText("Installing GYSTC MCP server (this may take a minute)...")
+            self._status.setStyleSheet("color: #FBBF24;")
+            QApplication.processEvents()
+
+            ok, msg = self._pip_install_gystc(python_cmd)
+            if ok:
+                results.append(f"MCP package: {msg}")
+            else:
+                results.append(f"MCP package: FAILED ({msg})")
+                self._status.setText(
+                    f"Could not install brain_mcp: {msg}\n"
+                    f"Manual fix: {python_cmd} -m pip install gystc"
+                )
+                self._status.setStyleSheet("color: #FF5C7C;")
+                return
+        else:
+            results.append("MCP package: ready")
+
         mcp_entry = {
             "command": python_cmd,
             "args": ["-m", "brain_mcp"],
@@ -208,7 +266,7 @@ class SetupWizard(QDialog):
                     json.dumps(existing, indent=2, ensure_ascii=False),
                     encoding="utf-8",
                 )
-                results.append(f"MCP: {mcp_path.name}")
+                results.append(f"MCP config: {mcp_path.name}")
             except Exception as e:
                 results.append(f"MCP {mcp_path.name}: {e}")
 

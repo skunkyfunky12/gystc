@@ -76,4 +76,4 @@ search in under 100ms. You'll see the context at the start of each conversation.
 - Reference paths — so the user can dig deeper in Obsidian
 - Store sparingly — only knowledge worth keeping across sessions
 - Use regions when storing — helps with organization and filtered search
-- The Dashboard (GYSTC Dashboard.exe) visualizes your vault as a 3D brain
+- The Dashboard (GYSTC Dashboard) visualizes your vault as a 3D brain (EXE on Windows, .app on macOS)

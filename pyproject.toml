@@ -4,7 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gystc"
-version = "0.1.0"
+version = "1.0.0"
+description = "Get Your Shit Together, Claude — persistent long-term memory via MCP"
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.0",
@@ -18,6 +19,12 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
+]
+dashboard = [
+    "PyQt6",
+    "PyQt6-WebEngine",
+    "scipy",
+    "requests",
 ]
 
 [tool.setuptools.packages.find]
