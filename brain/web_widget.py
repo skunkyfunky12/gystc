@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import threading
 import time
 from functools import partial
@@ -18,6 +19,8 @@ from PyQt6.QtWebEngineCore import QWebEngineScript
 from data.regions import COMMUNITY_TO_REGION, REGIONS
 
 _WEB_DIR = Path(__file__).parent / "web"
+if not _WEB_DIR.is_dir():
+    _WEB_DIR = Path(getattr(sys, "_MEIPASS", "")) / "brain" / "web"
 ACTIVITY_PORT = 9500
 
 

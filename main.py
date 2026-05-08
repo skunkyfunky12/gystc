@@ -10,7 +10,7 @@ os.environ.setdefault(
 )
 
 import numpy as np
-from PyQt6.QtWidgets import QApplication, QMainWindow
+from PyQt6.QtWidgets import QApplication, QMainWindow, QMessageBox
 from PyQt6.QtGui import QIcon
 
 from data.loader import load_graph
@@ -23,13 +23,22 @@ from integrations.obsidian import open_node_in_obsidian
 from setup_wizard import needs_setup, run_setup
 
 
+def _resource_base() -> Path:
+    return Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+
+
 def _find_icon() -> Path | None:
-    base = Path(__file__).parent / "assets"
-    for ext in (".icns", ".ico", ".svg"):
-        p = base / f"gystc-icon{ext}"
-        if p.exists():
-            return p
+    for base in (Path(__file__).parent / "assets", _resource_base() / "assets"):
+        for ext in (".icns", ".ico", ".svg"):
+            p = base / f"gystc-icon{ext}"
+            if p.exists():
+                return p
     return None
+
+
+def _fatal(app: QApplication, msg: str):
+    QMessageBox.critical(None, "GYSTC — Error", msg)
+    sys.exit(1)
 
 
 def main():
@@ -47,9 +56,7 @@ def main():
         try:
             config = json.loads(config_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
-            print(f"ERROR: config.json invalid: {e}")
-            print(f"Fix: {config_path}")
-            sys.exit(1)
+            _fatal(app, f"config.json is invalid:\n{e}\n\nFix: {config_path}")
 
     graph_path = config.get("graph_path", "graphify-out/graph.json")
     api_key = config.get("obsidian_api_key", "")
@@ -58,9 +65,7 @@ def main():
     if vault_path:
         vault_dir = Path(vault_path)
         if not vault_dir.is_dir():
-            print(f"ERROR: vault_path '{vault_path}' existiert nicht.")
-            print(f"Fix: ~/.gystc/config.json → vault_path korrigieren oder leeren.")
-            sys.exit(1)
+            _fatal(app, f"Vault path does not exist:\n{vault_path}\n\nFix: edit ~/.gystc/config.json")
         nodes, edges = load_vault(vault_path)
     else:
         nodes, edges = load_graph(graph_path)

@@ -163,11 +163,15 @@ class SetupWizard(QDialog):
             self._vault_input.setText(path)
 
     def _copy_claude_template(self):
-        template_path = Path(__file__).parent / "CLAUDE_TEMPLATE.md"
-        if template_path.exists():
-            text = template_path.read_text(encoding="utf-8")
-        else:
-            text = _fallback_claude_template()
+        candidates = [
+            Path(__file__).parent / "CLAUDE_TEMPLATE.md",
+            Path(getattr(sys, "_MEIPASS", "")) / "CLAUDE_TEMPLATE.md",
+        ]
+        text = _fallback_claude_template()
+        for p in candidates:
+            if p.exists():
+                text = p.read_text(encoding="utf-8")
+                break
         QApplication.clipboard().setText(text)
         self._status.setText("Copied to clipboard. Paste into your CLAUDE.md.")
         self._status.setStyleSheet("color: #22C55E;")
@@ -274,11 +278,11 @@ def needs_setup() -> bool:
 
 
 def _find_icon() -> Path | None:
-    base = Path(__file__).parent / "assets"
-    for ext in (".icns", ".ico", ".svg"):
-        p = base / f"gystc-icon{ext}"
-        if p.exists():
-            return p
+    for base in (Path(__file__).parent / "assets", Path(getattr(sys, "_MEIPASS", "")) / "assets"):
+        for ext in (".icns", ".ico", ".svg"):
+            p = base / f"gystc-icon{ext}"
+            if p.exists():
+                return p
     return None
 
 

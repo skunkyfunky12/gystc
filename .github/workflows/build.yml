@@ -32,11 +32,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install pyinstaller
-          pip install PyQt6 PyQt6-WebEngine PyOpenGL numpy scipy requests
-
-      - name: Install PyOpenGL-accelerate (optional)
-        continue-on-error: true
-        run: pip install PyOpenGL-accelerate
+          pip install PyQt6 PyQt6-WebEngine numpy scipy requests
 
       - name: Generate macOS icon from SVG
         if: runner.os == 'macOS'
