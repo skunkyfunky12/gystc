@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
-DEFAULT_DATA_DIR = Path.home() / ".neural-brain"
+DEFAULT_DATA_DIR = Path.home() / ".gystc"
 
 KNOWN_KEYS = {
     "vault_path", "model_name", "embedding_backend", "auto_index",

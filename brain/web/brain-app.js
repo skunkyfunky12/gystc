@@ -1257,9 +1257,9 @@ document.getElementById('btn-reset').addEventListener('click', () => {
 document.getElementById('btn-obsidian').addEventListener('click', () => {
   if (state.selectedId != null) {
     const n = graph.nodes[state.selectedId];
-    alert(`Öffne "${n.title}" in Obsidian\n\nPOST http://127.0.0.1:27123/open/${encodeURIComponent(n.title)}.md`);
-  } else {
-    alert('Erst eine Node auswählen.');
+    if (window.__onNodeClick) {
+      window.__onNodeClick(state.selectedId, n.title);
+    }
   }
 });
 
@@ -2019,8 +2019,8 @@ function runClaudeQuery(query) {
 
   // Terminal log
   termLine('> USER', query, { tagClass: 'tag-you' });
-  termLine('TOOL', `graphify.retrieve({ q: "${query.length > 40 ? query.slice(0,40)+'…' : query}" })`, { tagClass: 'tag-tool' });
-  termLine('MCP', `POST graphify://retrieve · <span class="hl">${hits.length} nodes</span>`, { tagClass: 'tag-mem' });
+  termLine('TOOL', `brain_retrieve({ q: "${query.length > 40 ? query.slice(0,40)+'…' : query}" })`, { tagClass: 'tag-tool' });
+  termLine('MCP', `POST gystc://retrieve · <span class="hl">${hits.length} nodes</span>`, { tagClass: 'tag-mem' });
 
   // Chip state
   chipQuery.style.display = '';
@@ -2087,7 +2087,7 @@ function runClaudeQuery(query) {
       const top = hits.slice(0, 3).map(n => `<span class="hl">${esc(n.title)}</span>`).join(', ');
       answer = `Basierend auf ${top} — ${REGIONS[hits[0].regionIdx].subtitle.toLowerCase()}.`;
     }
-    thinkingLine.innerHTML = answer || '(keine Antwort)';
+    thinkingLine.textContent = answer || '(keine Antwort)';
     setCtStatus('idle');
   }, hits.length * 85 + 400);
 
@@ -2266,7 +2266,7 @@ const bootTimer = setInterval(() => {
     setTimeout(() => bootEl.classList.add('removed'), 1300);
 
     if (window.innerWidth > 1100) claudeTerm.classList.add('expanded');
-    termLine('SYS', `Neural Brain · <span class="hl">${graph.nodes.length}</span> nodes · <span class="hl">${graph.edges.length}</span> edges`, { tagClass: 'tag-mem', out: true });
+    termLine('SYS', `GYSTC · <span class="hl">${graph.nodes.length}</span> nodes · <span class="hl">${graph.edges.length}</span> edges`, { tagClass: 'tag-mem', out: true });
     termLine('SYS', 'Warte auf Claude Code Aktivität...', { tagClass: 'tag-mem', out: true });
 
     // Global bridge: Python activity server pushes events here

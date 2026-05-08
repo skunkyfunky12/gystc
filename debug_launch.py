@@ -23,7 +23,7 @@ try:
     print("QApplication created")
 
     config = json.loads(
-        Path.home().joinpath(".neural-brain", "config.json").read_text(encoding="utf-8")
+        Path.home().joinpath(".gystc", "config.json").read_text(encoding="utf-8")
     )
     nodes, edges = load_graph(config["graph_path"])
     print(f"Loaded {len(nodes)} nodes, {len(edges)} edges")

@@ -1,11 +1,11 @@
-# Neural Brain — Instructions for Claude
+# GYSTC — Instructions for Claude
 
 > Copy this into your CLAUDE.md or Claude Code project settings.
 > Adjust the region table if you've customized your brain regions.
 
 ## Your Brain — the Obsidian Vault
 
-You have a persistent long-term memory via the Neural Brain MCP server. Your vault is your brain — use it.
+You have a persistent long-term memory via the GYSTC MCP server. Your vault is your brain — use it.
 
 **Core principle:** Search the vault BEFORE answering from general knowledge. If the user asks about a project, decision, or past work — the vault likely has it. Don't wait to be told to search.
 
@@ -57,7 +57,17 @@ Notes are organized by FUNCTION, not topic:
 | `brain_rollback` | Restoring a note to a previous version |
 | `brain_status` | Health check (instant, no model needed) |
 | `brain_classify` | Auto-classify notes into brain regions |
+| `brain_reclassify` | Re-classify a misclassified note |
+| `brain_autolink` | Find and create missing backlinks |
+| `brain_enrich` | Add metadata/tags to sparse notes |
 | `brain_reindex` | Re-index after bulk changes |
+| `brain_regions` | List all 12 regions with note counts |
+
+## Session-Start Hook
+
+If the hook is installed, every new Claude Code session automatically gets vault context
+injected (recent changes, relevant notes based on git context). This runs via FTS5-only
+search in under 100ms. You'll see the context at the start of each conversation.
 
 ## Behavior
 
@@ -66,3 +76,4 @@ Notes are organized by FUNCTION, not topic:
 - Reference paths — so the user can dig deeper in Obsidian
 - Store sparingly — only knowledge worth keeping across sessions
 - Use regions when storing — helps with organization and filtered search
+- The Dashboard (GYSTC Dashboard.exe) visualizes your vault as a 3D brain

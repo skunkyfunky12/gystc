@@ -1,4 +1,4 @@
-"""Force-directed physics simulation for the Neural Brain Dashboard.
+"""Force-directed physics simulation for the GYSTC Dashboard.
 
 Positions N graph nodes in 3D space using four forces per tick:
   1. Global center gravity  — pulls all nodes toward the origin

@@ -1,6 +1,13 @@
+import os
 import sys
 import json
 from pathlib import Path
+
+# Chromium SharedImageManager flicker fix — must be set before QWebEngine loads
+os.environ.setdefault(
+    "QTWEBENGINE_CHROMIUM_FLAGS",
+    "--in-process-gpu",
+)
 
 import numpy as np
 from PyQt6.QtWidgets import QApplication, QMainWindow
@@ -13,31 +20,25 @@ from data.regions import REGIONS, COMMUNITY_TO_REGION
 from brain.physics import PhysicsSimulation
 from brain.web_widget import BrainWebWidget
 from integrations.obsidian import open_node_in_obsidian
-
-
-def _ensure_default_config() -> None:
-    config_dir = Path.home() / ".neural-brain"
-    config_dir.mkdir(exist_ok=True)
-    config_path = config_dir / "config.json"
-    if not config_path.exists():
-        default = {
-            "graph_path": "graphify-out/graph.json",
-            "obsidian_api_key": "",
-            "vault_path": "",
-        }
-        config_path.write_text(json.dumps(default, indent=4), encoding="utf-8")
+from setup_wizard import needs_setup, run_setup
 
 
 def main():
-    _ensure_default_config()
+    app = QApplication(sys.argv)
+    icon_path = Path(__file__).parent / "assets" / "gystc-icon.ico"
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
 
-    config_path = Path.home() / ".neural-brain" / "config.json"
+    if needs_setup():
+        run_setup(app)
+
+    config_path = Path.home() / ".gystc" / "config.json"
     config = {}
     if config_path.exists():
         try:
             config = json.loads(config_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
-            print(f"ERROR: config.json ungültig: {e}")
+            print(f"ERROR: config.json invalid: {e}")
             print(f"Fix: {config_path}")
             sys.exit(1)
 
@@ -49,7 +50,7 @@ def main():
         vault_dir = Path(vault_path)
         if not vault_dir.is_dir():
             print(f"ERROR: vault_path '{vault_path}' existiert nicht.")
-            print(f"Fix: ~/.neural-brain/config.json → vault_path korrigieren oder leeren.")
+            print(f"Fix: ~/.gystc/config.json → vault_path korrigieren oder leeren.")
             sys.exit(1)
         nodes, edges = load_vault(vault_path)
     else:
@@ -70,18 +71,13 @@ def main():
     positions = physics.get_positions_f32()
     print("Physics converged")
 
-    app = QApplication(sys.argv)
-    icon_path = Path(__file__).parent / "assets" / "neural-brain-icon.ico"
-    if icon_path.exists():
-        app.setWindowIcon(QIcon(str(icon_path)))
-
     web_widget = BrainWebWidget(nodes, edges, positions)
 
     if api_key:
         web_widget.on_node_clicked = lambda node: open_node_in_obsidian(node, api_key, vault_path)
 
     window = QMainWindow()
-    window.setWindowTitle("Neural Brain Dashboard")
+    window.setWindowTitle("GYSTC Dashboard")
     window.setStyleSheet("background-color: #05070B;")
     window.setCentralWidget(web_widget)
     window.showMaximized()

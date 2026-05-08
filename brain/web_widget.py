@@ -313,11 +313,17 @@ class BrainWebWidget(QWebEngineView):
 
     @staticmethod
     def _sanitize_html(text: str) -> str:
+        import html as _html
         import re
-        safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-        safe = re.sub(r"&lt;span class=&#039;hl&#039;&gt;", "<span class='hl'>", safe)
-        safe = re.sub(r"&lt;span class='hl'&gt;", "<span class='hl'>", safe)
-        safe = re.sub(r"&lt;/span&gt;", "</span>", safe)
+        safe = _html.escape(text, quote=True)
+        def _restore_hl(m: re.Match) -> str:
+            inner = _html.escape(m.group(1))
+            return f"<span class='hl'>{inner}</span>"
+        safe = re.sub(
+            r"&lt;span class=(?:&#x27;|&#039;|')hl(?:&#x27;|&#039;|')&gt;(.*?)&lt;/span&gt;",
+            _restore_hl,
+            safe,
+        )
         return safe
 
     def push_activity(self, data: dict):

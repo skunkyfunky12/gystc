@@ -192,7 +192,7 @@ Every note change is automatically versioned. Use brain_history, brain_diff, and
 to explore and restore previous versions. The vault has no Git — this IS the version control.
 """.strip()
 
-mcp = FastMCP("Neural Brain", lifespan=brain_lifespan, instructions=BRAIN_INSTRUCTIONS)
+mcp = FastMCP("GYSTC", lifespan=brain_lifespan, instructions=BRAIN_INSTRUCTIONS)
 
 @mcp.tool()
 def brain_recent(days: int = 7, region: str | None = None, limit: int = 20) -> list[dict]:

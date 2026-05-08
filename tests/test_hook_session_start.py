@@ -13,9 +13,9 @@ def test_build_query_with_cwd():
 def test_build_query_with_git():
     result = build_query(
         cwd="/home/user/repo",
-        git_context={"repo": "neural-brain", "branch": "main", "commits": ["fix startup"]},
+        git_context={"repo": "gystc", "branch": "main", "commits": ["fix startup"]},
     )
-    assert "neural-brain" in result
+    assert "gystc" in result
     assert "main" in result
     assert "fix startup" in result
 

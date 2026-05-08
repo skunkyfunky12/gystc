@@ -127,7 +127,7 @@ def main():
         print(f"Error: {graph_path} not found")
         sys.exit(1)
 
-    db_path = Path.home() / ".neural-brain" / "brain.db"
+    db_path = Path.home() / ".gystc" / "brain.db"
     db = BrainDB(db_path)
 
     result = import_graphify(graph_path, db, dry_run=dry_run)

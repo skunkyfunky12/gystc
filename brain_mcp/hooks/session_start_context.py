@@ -14,7 +14,7 @@ def get_brain_db_path() -> Path | None:
     if data_dir:
         p = Path(data_dir)
     else:
-        p = Path.home() / ".neural-brain"
+        p = Path.home() / ".gystc"
 
     config_file = p / "config.json"
     if config_file.exists():

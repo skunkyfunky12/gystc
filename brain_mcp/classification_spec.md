@@ -1,4 +1,4 @@
-# Neural Brain — Classification Specification
+# GYSTC — Classification Specification
 
 Portable spec for classifying Obsidian vault notes into 12 brain regions.
 Any classifier (human, keyword engine, or LLM) should follow this decision tree.

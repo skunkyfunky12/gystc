@@ -1,0 +1,100 @@
+name: Build GYSTC Dashboard
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: gystc-windows
+            spec: gystc.spec
+          - os: macos-latest
+            artifact: gystc-macos
+            spec: gystc.spec
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pyinstaller
+          pip install PyQt6 PyQt6-WebEngine PyOpenGL PyOpenGL-accelerate numpy scipy requests
+
+      - name: Generate macOS icon
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p gystc-icon.iconset
+          sips -z 16 16 assets/gystc-icon.ico --out gystc-icon.iconset/icon_16x16.png 2>/dev/null || true
+          sips -z 32 32 assets/gystc-icon.ico --out gystc-icon.iconset/icon_32x32.png 2>/dev/null || true
+          sips -z 128 128 assets/gystc-icon.ico --out gystc-icon.iconset/icon_128x128.png 2>/dev/null || true
+          sips -z 256 256 assets/gystc-icon.ico --out gystc-icon.iconset/icon_256x256.png 2>/dev/null || true
+          sips -z 512 512 assets/gystc-icon.ico --out gystc-icon.iconset/icon_512x512.png 2>/dev/null || true
+          iconutil -c icns gystc-icon.iconset -o assets/gystc-icon.icns 2>/dev/null || echo "iconutil failed, using ico fallback"
+
+      - name: Build with PyInstaller
+        run: pyinstaller ${{ matrix.spec }} --noconfirm
+
+      - name: Verify build output
+        shell: bash
+        run: |
+          ls -la dist/
+          if [ -d "dist/GYSTC Dashboard.app" ]; then
+            echo "macOS .app bundle found"
+            ls -la "dist/GYSTC Dashboard.app/Contents/MacOS/" || true
+          else
+            echo "Windows dist found"
+            ls -la "dist/GYSTC Dashboard/"
+            ls "dist/GYSTC Dashboard/_internal/brain/web/" || true
+          fi
+
+      - name: Create ZIP archive
+        shell: bash
+        run: |
+          cd dist
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            7z a -tzip "../${{ matrix.artifact }}.zip" "GYSTC Dashboard/"
+          else
+            zip -r -y "../${{ matrix.artifact }}.zip" "GYSTC Dashboard.app/" "GYSTC Dashboard/" 2>/dev/null || zip -r -y "../${{ matrix.artifact }}.zip" "GYSTC Dashboard/"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.zip
+          retention-days: 30
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            artifacts/gystc-windows/gystc-windows.zip
+            artifacts/gystc-macos/gystc-macos.zip

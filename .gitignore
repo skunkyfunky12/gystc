@@ -8,4 +8,4 @@ graphify-out/
 launch_log.txt
 *.db
 *.faiss
-.neural-brain/
+.gystc/

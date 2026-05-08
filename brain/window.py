@@ -1,8 +1,4 @@
-"""Main application window for the Neural Brain Dashboard.
-
-Hosts the BrainGLWidget as its central widget and handles keyboard
-shortcuts for navigation, fullscreen toggle, and region fly-to.
-"""
+"""Main application window for the GYSTC Dashboard."""
 from __future__ import annotations
 
 import numpy as np
@@ -43,7 +39,7 @@ class BrainWindow(QMainWindow):
         self._gl_widget = gl_widget
         self._camera = camera
 
-        self.setWindowTitle("Neural Brain Dashboard")
+        self.setWindowTitle("GYSTC Dashboard")
         self.setStyleSheet("background-color: #030508;")
         self.setCentralWidget(gl_widget)
         self.showMaximized()

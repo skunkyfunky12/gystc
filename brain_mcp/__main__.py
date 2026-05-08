@@ -51,7 +51,7 @@ def cmd_config(args):
 
     if action == "show":
         config = load_config()
-        print(f"Neural Brain Configuration ({config.config_path})")
+        print(f"GYSTC Configuration ({config.config_path})")
         print("-" * 60)
         print(f"  vault_path        {config.vault_path or '(not set)'}")
         print(f"  model_name        {config.model_name}")
@@ -159,7 +159,7 @@ def cmd_config(args):
                 print("Aborted.")
                 return
 
-        print("\nNeural Brain Setup")
+        print("\nGYSTC Setup")
         print("=" * 40)
 
         # 1. Vault path
@@ -233,14 +233,14 @@ def cmd_config(args):
             finally:
                 db.close()
 
-        print("\nDone! Neural Brain is ready.")
+        print("\nDone! GYSTC is ready.")
     else:
         print(f"ERROR: Unknown config action: {action}", file=sys.stderr)
         sys.exit(1)
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="brain_mcp", description="Neural Brain MCP Server")
+    parser = argparse.ArgumentParser(prog="brain_mcp", description="GYSTC MCP Server")
     sub = parser.add_subparsers(dest="command")
 
     sub.add_parser("serve", help="Start MCP server (default)")

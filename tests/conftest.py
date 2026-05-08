@@ -29,7 +29,7 @@ def tmp_vault(tmp_path):
 
 @pytest.fixture
 def tmp_config_dir(tmp_path, tmp_vault):
-    config_dir = tmp_path / ".neural-brain"
+    config_dir = tmp_path / ".gystc"
     config_dir.mkdir()
     config = {"vault_path": str(tmp_vault)}
     (config_dir / "config.json").write_text(json.dumps(config), encoding="utf-8")
