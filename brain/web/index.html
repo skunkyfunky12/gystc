@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -653,7 +653,7 @@
       <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/>
       </svg>
-      <input id="search-input" placeholder="Suche im Brain… z.B. &quot;MCP&quot;, &quot;Routing&quot;, &quot;Projekt&quot;" autocomplete="off"/>
+      <input id="search-input" placeholder="Search brain… e.g. &quot;MCP&quot;, &quot;Routing&quot;, &quot;Project&quot;" autocomplete="off"/>
       <div class="kbd">⌘K</div>
       <div class="search-results" id="search-results"></div>
     </div>
@@ -677,14 +677,14 @@
       </button>
       <button class="btn primary" id="btn-obsidian">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
-        Öffnen
+        Open
       </button>
     </div>
   </div>
 
   <aside class="sidebar">
     <div class="section-head">
-      <span>Hirnregionen</span>
+      <span>Brain Regions</span>
       <span class="count" id="region-total">12</span>
     </div>
     <div class="region-list" id="region-list"></div>
@@ -694,22 +694,22 @@
     <div class="section-head"><span>Filter</span></div>
     <div class="legend">
       <div class="legend-row">
-        <span>Aktive Nodes</span>
+        <span>Active Nodes</span>
         <span class="meta" id="active-nodes">—</span>
       </div>
       <div class="legend-row">
-        <span>Verbindungen</span>
+        <span>Connections</span>
         <span class="meta" id="active-edges">—</span>
       </div>
       <div class="legend-row">
-        <span>Ø Grad</span>
+        <span>Avg Degree</span>
         <span class="meta" id="avg-degree">—</span>
       </div>
     </div>
 
     <div class="divider"></div>
 
-    <div class="section-head"><span>Letzte Claude-Queries</span></div>
+    <div class="section-head"><span>Recent Claude Queries</span></div>
     <div class="queries-section" id="recent-queries"></div>
   </aside>
 
@@ -753,10 +753,10 @@
       <div class="ct-body" id="ct-body"></div>
       <div class="ct-input-row">
         <span class="ct-prompt">❯</span>
-        <input class="ct-input" id="ct-input" placeholder="Frag Claude… z.B. „Wer arbeitet am MCP-Layer?"" autocomplete="off" spellcheck="false"/>
+        <input class="ct-input" id="ct-input" placeholder="Ask Claude… e.g. &quot;Who works on the MCP layer?&quot;" autocomplete="off" spellcheck="false"/>
         <span class="ct-hint">↵</span>
       </div>
-      <div class="ct-resize" id="ct-resize" title="Ziehen zum Skalieren"></div>
+      <div class="ct-resize" id="ct-resize" title="Drag to resize"></div>
     </div>
 
     <!-- Injected context pills -->
@@ -770,8 +770,8 @@
     </div>
     <div class="timeline">
       <div class="timeline-label">
-        <span>GEDÄCHTNIS-ZEITSTRAHL</span>
-        <span class="tl-now" id="tl-now">JETZT</span>
+        <span>MEMORY TIMELINE</span>
+        <span class="tl-now" id="tl-now">NOW</span>
       </div>
       <input type="range" id="timeline-slider" min="0" max="100" value="100"/>
     </div>
@@ -785,16 +785,16 @@
           <circle cx="12" cy="12" r="9" stroke-dasharray="2 3"/>
         </svg>
       </div>
-      <div>Hover über eine Node um Details zu sehen.<br/>Klick öffnet das Info-Panel.</div>
+      <div>Hover over a node to see details.<br/>Click to open the info panel.</div>
     </div>
   </aside>
 
   <div class="status">
-    <div class="st-item"><div class="st-dot"></div><strong>VERBUNDEN</strong> Obsidian REST · 127.0.0.1:27123</div>
+    <div class="st-item"><div class="st-dot"></div><strong>CONNECTED</strong> Obsidian REST · 127.0.0.1:27123</div>
     <div class="st-item">GRAPH <strong id="st-graph">—</strong></div>
-    <div class="st-item">PHYSIK <strong>KONVERGIERT · 200 ticks</strong></div>
+    <div class="st-item">PHYSICS <strong>CONVERGED · 200 ticks</strong></div>
     <div class="spacer"></div>
-    <div class="st-item" id="st-hint">LMB ZIEHEN · DRAG · SCROLL ZOOM · CLICK INFO</div>
+    <div class="st-item" id="st-hint">LMB DRAG · SCROLL ZOOM · CLICK INFO</div>
   </div>
 
 </div>
@@ -802,7 +802,7 @@
 <div class="boot" id="boot">
   <div class="boot-brand">◆  GYSTC</div>
   <div class="boot-bar"></div>
-  <div class="boot-status" id="boot-status">Initialisiere Gehirn…</div>
+  <div class="boot-status" id="boot-status">Initializing brain…</div>
 </div>
 
 <!-- Tweaks Panel -->
@@ -812,7 +812,7 @@
     <span class="close" id="tweaks-close">✕</span>
   </div>
   <div class="tweak-group">
-    <div class="tweak-label">Palette <span class="tl-val" id="palette-name">kalt</span></div>
+    <div class="tweak-label">Palette <span class="tl-val" id="palette-name">cold</span></div>
     <div class="palette-options" id="palette-options"></div>
   </div>
   <div class="tweak-group">
@@ -820,19 +820,19 @@
     <input type="range" id="glow-slider" min="0" max="3" step="0.05" value="1.0"/>
   </div>
   <div class="tweak-group">
-    <div class="tweak-label">Sterne <span class="tl-val" id="stars-val">3000</span></div>
+    <div class="tweak-label">Stars <span class="tl-val" id="stars-val">3000</span></div>
     <input type="range" id="stars-slider" min="0" max="8000" step="100" value="3000"/>
   </div>
   <div class="tweak-group">
-    <div class="tweak-label">Node-Größe <span class="tl-val" id="size-val">1.0</span></div>
+    <div class="tweak-label">Node Size <span class="tl-val" id="size-val">1.0</span></div>
     <input type="range" id="size-slider" min="1" max="10" step="0.1" value="2.5"/>
   </div>
   <div class="tweak-group">
-    <div class="tweak-label">Pulse-Geschwindigkeit <span class="tl-val" id="pulse-val">1.0</span></div>
+    <div class="tweak-label">Pulse Speed <span class="tl-val" id="pulse-val">1.0</span></div>
     <input type="range" id="pulse-slider" min="0" max="3" step="0.1" value="1.0"/>
   </div>
   <div class="tweak-group">
-    <div class="tweak-label">Bloom-Stärke <span class="tl-val" id="bloom-val">0.55</span></div>
+    <div class="tweak-label">Bloom Strength <span class="tl-val" id="bloom-val">0.55</span></div>
     <input type="range" id="bloom-slider" min="0" max="1.5" step="0.05" value="0.55"/>
   </div>
   <div class="tweak-group">
@@ -840,7 +840,7 @@
     <input type="range" id="bloom-radius-slider" min="0.2" max="1.2" step="0.05" value="0.7"/>
   </div>
   <div class="tweak-group">
-    <div class="tweak-label">Verbindungen <span class="tl-val" id="edge-val">0.35</span></div>
+    <div class="tweak-label">Connections <span class="tl-val" id="edge-val">0.35</span></div>
     <input type="range" id="edge-slider" min="0" max="1" step="0.05" value="0.35"/>
   </div>
   <div class="tweak-group">
@@ -852,7 +852,7 @@
     <input type="range" id="edgewidth-slider" min="0.1" max="4" step="0.1" value="1.0"/>
   </div>
   <div class="tweak-group">
-    <div class="tweak-label">Nur Intra-Region <span class="tl-val" id="intra-val">AUS</span></div>
+    <div class="tweak-label">Intra-Region Only <span class="tl-val" id="intra-val">OFF</span></div>
     <input type="range" id="intra-slider" min="0" max="1" step="1" value="0"/>
   </div>
 </div>
@@ -878,7 +878,7 @@
   <div class="settings-group settings-row">
     <div>
       <div class="settings-label">Auto-Index</div>
-      <div class="settings-hint">Live-Sync bei Dateiänderungen</div>
+      <div class="settings-hint">Live sync on file changes</div>
     </div>
     <label class="toggle">
       <input type="checkbox" id="cfg-auto-index"/>
@@ -889,7 +889,7 @@
   <div class="settings-group settings-row">
     <div>
       <div class="settings-label">Index on Startup</div>
-      <div class="settings-hint">Vault beim Start scannen</div>
+      <div class="settings-hint">Scan vault on startup</div>
     </div>
     <label class="toggle">
       <input type="checkbox" id="cfg-index-startup"/>

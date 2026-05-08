@@ -21,18 +21,18 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 // Deep/central regions (thalamus, basal, nucleus, amygdala) stay near core;
 // cortical regions pushed further out along their lobes.
 const REGIONS = [
-  { key: 'prefrontal', name: 'Präfrontaler Cortex',  subtitle: 'Entscheidungen · Planung', color: '#4DA3FF', pos: [   0, 420, -540] },
-  { key: 'motor',      name: 'Motorischer Cortex',   subtitle: 'Code · Commits · Actions', color: '#22C55E', pos: [-210, 470, -260] },
-  { key: 'sensory',    name: 'Sensorischer Cortex',  subtitle: 'Dateien · Inputs · Logs', color: '#5EE9F0', pos: [ 210, 470, -130] },
-  { key: 'hippo',      name: 'Hippocampus',          subtitle: 'Langzeitgedächtnis · Projekte', color: '#9D7CFF', pos: [-340,   0,  130] },
-  { key: 'cerebellum', name: 'Kleinhirn',            subtitle: 'Routinen · Skripte · Workflows', color: '#EC4899', pos: [ 280,-150,  470] },
-  { key: 'nucleus',    name: 'Nucleus Accumbens',    subtitle: 'Ziele · Prioritäten · Wins', color: '#FACC15', pos: [  75, 225, -300] },
-  { key: 'broca',      name: 'Broca-Areal',          subtitle: 'Sprache · Prompts · Schreiben', color: '#F97316', pos: [-260, 210, -340] },
-  { key: 'visual',     name: 'Visueller Cortex',     subtitle: 'Design · UI · Diagramme', color: '#A855F7', pos: [ 210, 130,  470] },
-  { key: 'thalamus',   name: 'Thalamus',             subtitle: 'Context-Router · MCP · API', color: '#3FD4E8', pos: [   0, 260,   75] },
-  { key: 'stem',       name: 'Stammhirn',            subtitle: 'System · Config · Infra', color: '#94A3B8', pos: [   0,-420,  340] },
-  { key: 'basal',      name: 'Basalganglien',        subtitle: 'Habits · Tools · Patterns', color: '#F43F5E', pos: [-225, 150, -120] },
-  { key: 'amygdala',   name: 'Amygdala',             subtitle: 'Alerts · Fehler · Risiken', color: '#FB923C', pos: [-150, -95, -210] },
+  { key: 'prefrontal', name: 'Prefrontal Cortex',     subtitle: 'Decisions · Planning', color: '#4DA3FF', pos: [   0, 420, -540] },
+  { key: 'motor',      name: 'Motor Cortex',          subtitle: 'Code · Commits · Actions', color: '#22C55E', pos: [-210, 470, -260] },
+  { key: 'sensory',    name: 'Sensory Cortex',        subtitle: 'Files · Inputs · Logs', color: '#5EE9F0', pos: [ 210, 470, -130] },
+  { key: 'hippo',      name: 'Hippocampus',           subtitle: 'Long-term Memory · Projects', color: '#9D7CFF', pos: [-340,   0,  130] },
+  { key: 'cerebellum', name: 'Cerebellum',            subtitle: 'Routines · Scripts · Workflows', color: '#EC4899', pos: [ 280,-150,  470] },
+  { key: 'nucleus',    name: 'Nucleus Accumbens',     subtitle: 'Goals · Priorities · Wins', color: '#FACC15', pos: [  75, 225, -300] },
+  { key: 'broca',      name: 'Broca Area',            subtitle: 'Language · Prompts · Writing', color: '#F97316', pos: [-260, 210, -340] },
+  { key: 'visual',     name: 'Visual Cortex',         subtitle: 'Design · UI · Diagrams', color: '#A855F7', pos: [ 210, 130,  470] },
+  { key: 'thalamus',   name: 'Thalamus',              subtitle: 'Context-Router · MCP · API', color: '#3FD4E8', pos: [   0, 260,   75] },
+  { key: 'stem',       name: 'Brainstem',             subtitle: 'System · Config · Infra', color: '#94A3B8', pos: [   0,-420,  340] },
+  { key: 'basal',      name: 'Basal Ganglia',         subtitle: 'Habits · Tools · Patterns', color: '#F43F5E', pos: [-225, 150, -120] },
+  { key: 'amygdala',   name: 'Amygdala',              subtitle: 'Alerts · Errors · Risks', color: '#FB923C', pos: [-150, -95, -210] },
 ];
 
 const PALETTES = {
@@ -67,26 +67,26 @@ function seededRandom(seed) {
 const rng = seededRandom(42);
 
 const NOTE_TITLES = {
-  prefrontal: ['Roadmap Q2 2026','Decision: Migration zu pnpm','Architektur Neural-Brain','Projekt-Priorisierung','Design-Review Notes','Tech-Debt Backlog','Feature-Spec: Graph-Layer','Planning: Refactor GL-Widget','Strategie: Claude-Memory','OKRs persönlich','Trade-off Analyse','Entscheidung: Monorepo'],
-  motor: ['Commit e4f9a1 — physics tick','PR #142: Edge-Shader Fix','Refactor scene.py','Neue Funktion: pickNode','Bug-Fix: Memory-Leak OrbitCamera','Deploy script v3','Automation: test-runner','CI/CD Pipeline'],
-  sensory: ['Graphify Output 2026-04-17','Log-Dump OrbitCamera','Screenshot: Brain-View','Input: PRD von Lisa','Dateibaum neural-brain/','Diff gegen main','Fehler-Log launch.txt'],
-  hippo: ['Projekt: Neural-Brain','Projekt: Graphify','Projekt: Dashboard-Redesign','Notes 2024 retrospektive','Interview mit Max','Onboarding Woche 1','Conf-Talk PyCon 2025','Vault-Migration','Meeting mit Anna','Learning: OpenGL Shader','Research: Graph-Algos','Memory-Konsolidierung'],
+  prefrontal: ['Roadmap Q2 2026','Decision: Migrate to pnpm','Architecture Neural-Brain','Project Prioritization','Design-Review Notes','Tech-Debt Backlog','Feature-Spec: Graph-Layer','Planning: Refactor GL-Widget','Strategy: Claude-Memory','OKRs personal','Trade-off Analysis','Decision: Monorepo'],
+  motor: ['Commit e4f9a1 — physics tick','PR #142: Edge-Shader Fix','Refactor scene.py','New Function: pickNode','Bug-Fix: Memory-Leak OrbitCamera','Deploy script v3','Automation: test-runner','CI/CD Pipeline'],
+  sensory: ['Graphify Output 2026-04-17','Log-Dump OrbitCamera','Screenshot: Brain-View','Input: PRD from Lisa','File-Tree neural-brain/','Diff against main','Error-Log launch.txt'],
+  hippo: ['Project: Neural-Brain','Project: Graphify','Project: Dashboard-Redesign','Notes 2024 Retrospective','Interview with Max','Onboarding Week 1','Conf-Talk PyCon 2025','Vault-Migration','Meeting with Anna','Learning: OpenGL Shader','Research: Graph-Algos','Memory Consolidation'],
   cerebellum: ['Daily Standup Template','Morning Routine','Weekly Review Flow','Pomodoro Ritual','Git-Workflow','PR-Review Checklist'],
-  nucleus: ['Ziel: Prototype bis 30.04','Win: GL-Widget läuft','Reward: Side-Project shipped','Priorität A: Memory-Layer','Motivation: Demo-Video','Dopamin-Loop Insight'],
-  broca: ['Prompt-Library Claude','System-Prompt v4','README Neural-Brain','Blog-Entwurf','Pitch-Deck Slides','Cold-Email Template'],
-  visual: ['Figma Mockup Dashboard','Brand Colors 2026','Logo-Exploration','Icon-Set','Brain Visual Style','Diagramm Architektur','Moodboard dark-mode'],
+  nucleus: ['Goal: Prototype by 30.04','Win: GL-Widget running','Reward: Side-Project shipped','Priority A: Memory-Layer','Motivation: Demo-Video','Dopamine-Loop Insight'],
+  broca: ['Prompt-Library Claude','System-Prompt v4','README Neural-Brain','Blog-Draft','Pitch-Deck Slides','Cold-Email Template'],
+  visual: ['Figma Mockup Dashboard','Brand Colors 2026','Logo-Exploration','Icon-Set','Brain Visual Style','Architecture Diagram','Moodboard dark-mode'],
   thalamus: ['MCP-Endpoint Liste','API-Keys vault','Context-Budget Rechner','Routing-Rules Claude','Integration Obsidian','Notion-Connector','Graphify Schema'],
   stem: ['dotfiles','~/.config/nvim','Docker-compose prod','Backup-Strategy','System-Setup MacBook','Environment Variables','Launch-Script'],
   basal: ['Tool: ripgrep Cheats','Habit: daily notes','Pattern: Error-Boundary','Snippet-Library','Alias-Liste','Hotkey-Setup','Raycast-Workflows'],
-  amygdala: ['Alert: API-Key exposed','Risk: Obsidian-Plugin broken','Fehler: Physics NaN','Post-mortem Crash','Security-Audit','TODO: Kritischer Bug','Warnung: Disk 95%'],
+  amygdala: ['Alert: API-Key exposed','Risk: Obsidian-Plugin broken','Error: Physics NaN','Post-mortem Crash','Security-Audit','TODO: Critical Bug','Warning: Disk 95%'],
 };
 
 // Pad each region up to ~42 titles with contextual variations (total ~500 nodes)
 const TITLE_SUFFIXES = {
-  prefrontal: ['2026-W12','2026-W13','2026-W14','Entwurf','final','v2','v3','Review','Offene Fragen','Follow-up','Rev A','Rev B','Outline','Draft','Sync','Status','Update','Rückblick','Ausblick','gesplittet','archiviert'],
+  prefrontal: ['2026-W12','2026-W13','2026-W14','Draft','final','v2','v3','Review','Open Questions','Follow-up','Rev A','Rev B','Outline','Draft','Sync','Status','Update','Retrospective','Outlook','split','archived'],
   motor:      ['hotfix','WIP','rebase','cherry-pick','squash','refactor-pass','clean-up','lint-fix','perf','bundle-opt','tree-shake','v1.2','v1.3','v2.0','chore','fix/ui','fix/api','feat/','chore/deps','fix: race','RFC'],
   sensory:    ['2026-04-12','2026-04-14','2026-04-15','2026-04-16','chunk-07','chunk-08','batch-A','batch-B','stream-01','stream-02','trace-001','trace-002','snapshot','heap-dump','coredump','ingest-3','ingest-4','parse-log','diff-log','stderr','stdout'],
-  hippo:      ['Dezember 2024','Januar 2025','Februar 2025','März 2025','Sprint 7','Sprint 8','Sprint 9','Retro Q1','Retro Q2','Interview mit Jonas','Interview mit Sarah','Meeting-Notes 04','Meeting-Notes 05','Lessons Learned','Knowledge-Dump','2024-Review','History','archiv-2023','archiv-2024','Milestone-Doc','Deep-Dive'],
+  hippo:      ['December 2024','January 2025','February 2025','March 2025','Sprint 7','Sprint 8','Sprint 9','Retro Q1','Retro Q2','Interview with Jonas','Interview with Sarah','Meeting-Notes 04','Meeting-Notes 05','Lessons Learned','Knowledge-Dump','2024-Review','History','archive-2023','archive-2024','Milestone-Doc','Deep-Dive'],
   cerebellum: ['Morning','Evening','Monday','Friday','Sprint-Kickoff','Stand-up','Grooming','1:1 Template','Retro-Flow','Writing-Flow','Review-Flow','Debug-Ritual','Deploy-Flow','Release-Flow','Ship-It-Flow','Post-Ship','Cooldown','Energy-Check','Habit-Tracker','Streak-Day','Template'],
   nucleus:    ['30.04','15.05','01.06','Q2','Q3','Week 15','Week 16','Milestone 1','Milestone 2','Reward-Log','Win-Log Apr','Win-Log Mai','Streak 12','Streak 30','Focus-Day','Deep-Work','Big Goal','Small Win','Momentum','Energy-Log','Done-List'],
   broca:      ['Summarize','Extract','Classify','Rewrite','Expand','Simplify','Translate','Outline','Bullet-List','Q&A','Cold-Outreach','Landing-Copy','Subject-Line','Hook','TL;DR','Ghost-Draft','Interview-Q','Talking-Points','Script','Tweet-Thread','Newsletter'],
@@ -962,7 +962,7 @@ canvas.addEventListener('mousemove', (e) => {
     tooltip.style.top = (e.clientY - canvas.getBoundingClientRect().top) + 'px';
     tooltip.innerHTML = `
       <div class="t-title"><span class="t-dot" style="background:${regionColor};color:${regionColor}"></span>${esc(n.title)}</div>
-      <div class="t-meta">GRAD ${n.degree} · ${n.wordCount} WÖRTER${n.hub ? ' · HUB' : ''}</div>
+      <div class="t-meta">DEG ${n.degree} · ${n.wordCount} WORDS${n.hub ? ' · HUB' : ''}</div>
       <div class="t-region">${regionName}</div>
     `;
     hudNode.textContent = '#' + n.id.toString().padStart(4, '0');
@@ -1073,11 +1073,11 @@ function toggleRegion(key) {
 
 // Palette swatches
 const paletteOptions = [
-  { key: 'cold',     label: 'kalt'     },
+  { key: 'cold',     label: 'cold'     },
   { key: 'teal',     label: 'teal'     },
   { key: 'violet',   label: 'violet'   },
   { key: 'warm',     label: 'warm'     },
-  { key: 'graphite', label: 'graphit'  },
+  { key: 'graphite', label: 'graphite' },
   { key: 'noir',     label: 'noir'     },
 ];
 const paletteEl = document.getElementById('palette-options');
@@ -1184,7 +1184,7 @@ bindSlider('edgewidth-slider', 'edgewidth-val', (v) => {
 });
 bindSlider('intra-slider', 'intra-val', (v) => {
   state.intraOnly = v >= 1;
-  document.getElementById('intra-val').textContent = state.intraOnly ? 'AN' : 'AUS';
+  document.getElementById('intra-val').textContent = state.intraOnly ? 'ON' : 'OFF';
   applyEdgeFilters();
   persistTweaks({ intraOnly: state.intraOnly });
 }, true);
@@ -1211,7 +1211,7 @@ document.getElementById('bloom-val').textContent = state.bloom.toFixed(2);
 document.getElementById('bloom-radius-val').textContent = state.bloomRadius.toFixed(2);
 document.getElementById('edge-val').textContent = state.edgeOpacity.toFixed(2);
 document.getElementById('edgerange-val').textContent = Math.round(state.edgeRange * 100) + '%';
-document.getElementById('intra-val').textContent = state.intraOnly ? 'AN' : 'AUS';
+document.getElementById('intra-val').textContent = state.intraOnly ? 'ON' : 'OFF';
 
 // Top buttons
 document.getElementById('btn-rotate').addEventListener('click', () => {
@@ -1290,9 +1290,9 @@ document.addEventListener('keydown', (e) => {
 });
 
 const SETTINGS_REGION_NAMES = [
-  'Praefrontaler Cortex','Motorischer Cortex','Sensorischer Cortex',
-  'Hippocampus','Kleinhirn','Nucleus Accumbens','Broca-Areal',
-  'Visueller Cortex','Thalamus','Stammhirn','Basalganglien','Amygdala',
+  'Prefrontal Cortex','Motor Cortex','Sensory Cortex',
+  'Hippocampus','Cerebellum','Nucleus Accumbens','Broca Area',
+  'Visual Cortex','Thalamus','Brainstem','Basal Ganglia','Amygdala',
 ];
 
 function buildMappingRow(folder, idx) {
@@ -1422,15 +1422,15 @@ reindexBtn.addEventListener('click', async () => {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     if (data.error) {
-      statusEl.textContent = 'Fehler: ' + data.error;
+      statusEl.textContent = 'Error: ' + data.error;
       statusEl.style.color = 'var(--danger)';
     } else {
-      statusEl.textContent = data.indexed + ' Notes indexiert in ' + data.elapsed + 's';
+      statusEl.textContent = data.indexed + ' notes indexed in ' + data.elapsed + 's';
       statusEl.style.color = 'var(--accent)';
       loadSettings();
     }
   } catch (e) {
-    statusEl.textContent = 'Fehler: ' + e.message;
+    statusEl.textContent = 'Error: ' + e.message;
     statusEl.style.color = 'var(--danger)';
   } finally {
     reindexBtn.classList.remove('loading');
@@ -1460,9 +1460,9 @@ function renderDetail(node) {
       </div>
       <div class="detail-title">${esc(node.title)}</div>
       <div class="detail-meta">
-        <span><strong>${node.degree}</strong>verbindungen</span>
-        <span><strong>${node.wordCount}</strong>wörter</span>
-        <span><strong>${node.created.toLocaleDateString('de-DE',{month:'short',day:'2-digit'})}</strong></span>
+        <span><strong>${node.degree}</strong> connections</span>
+        <span><strong>${node.wordCount}</strong> words</span>
+        <span><strong>${node.created.toLocaleDateString('en-US',{month:'short',day:'2-digit'})}</strong></span>
       </div>
     </div>
     <div class="detail-section">
@@ -1470,7 +1470,7 @@ function renderDetail(node) {
       <div class="tag-list">${node.tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>
     </div>
     <div class="detail-section">
-      <h3>Verknüpfte Notizen (${neighbors.length})</h3>
+      <h3>Connected Notes (${neighbors.length})</h3>
       <div class="link-list">
         ${neighbors.map(nn => {
           const nc = PALETTES[state.palette][nn.regionIdx];
@@ -1484,9 +1484,9 @@ function renderDetail(node) {
     </div>
     <div class="detail-actions">
       <button class="btn primary" id="detail-open">
-        In Obsidian öffnen
+        Open in Obsidian
       </button>
-      <button class="btn" id="detail-close">Schließen</button>
+      <button class="btn" id="detail-close">Close</button>
     </div>
   `;
   detailPanel.querySelectorAll('.link-item').forEach(el => {
@@ -1745,21 +1745,21 @@ updateStats();
 // Recent Claude queries
 const recentEl = document.getElementById('recent-queries');
 const SAMPLE_QUERIES = [
-  { q: 'Wie ist die Architektur von Neural-Brain?', regions: ['prefrontal','hippo','visual'], ts: '2m' },
-  { q: 'Letzter Commit am GL-Widget?', regions: ['motor','sensory'], ts: '14m' },
-  { q: 'Welche MCP-Endpoints nutze ich?', regions: ['thalamus','stem'], ts: '1h' },
-  { q: 'Offene Bugs & Risiken?', regions: ['amygdala','motor'], ts: '3h' },
-  { q: 'Wochenziele diese Woche', regions: ['nucleus','prefrontal'], ts: 'gestern' },
-  { q: 'Schreibstil für Prompt-Engineering-Doc', regions: ['broca','visual'], ts: '2d' },
-  { q: 'Welche Tools nutze ich für Deploy?', regions: ['basal','motor','cerebellum'], ts: '3d' },
-  { q: 'Pattern aus letzter Design-Review', regions: ['visual','hippo'], ts: '1w' },
+  { q: 'What is the architecture of Neural-Brain?', regions: ['prefrontal','hippo','visual'], ts: '2m' },
+  { q: 'Latest commit on GL-Widget?', regions: ['motor','sensory'], ts: '14m' },
+  { q: 'Which MCP endpoints am I using?', regions: ['thalamus','stem'], ts: '1h' },
+  { q: 'Open bugs & risks?', regions: ['amygdala','motor'], ts: '3h' },
+  { q: 'Weekly goals this week', regions: ['nucleus','prefrontal'], ts: 'yesterday' },
+  { q: 'Writing style for Prompt-Engineering doc', regions: ['broca','visual'], ts: '2d' },
+  { q: 'Which tools do I use for deploy?', regions: ['basal','motor','cerebellum'], ts: '3d' },
+  { q: 'Pattern from last design review', regions: ['visual','hippo'], ts: '1w' },
 ];
 SAMPLE_QUERIES.forEach(s => {
   const row = document.createElement('div');
   row.className = 'qitem';
   row.innerHTML = `
     <div class="q-text">${s.q}</div>
-    <div class="q-meta"><span>${s.ts}</span><span>${s.regions.length} REGIONEN</span><span class="q-score">${(0.7 + Math.random()*0.28).toFixed(2)}</span></div>
+    <div class="q-meta"><span>${s.ts}</span><span>${s.regions.length} REGIONS</span><span class="q-score">${(0.7 + Math.random()*0.28).toFixed(2)}</span></div>
   `;
   row.addEventListener('click', () => { searchInput.value = s.q; runClaudeQuery(s.q); });
   recentEl.appendChild(row);
@@ -2074,7 +2074,7 @@ function runClaudeQuery(query) {
 
     // Build a grounded prompt from the hits
     const ctx = hits.slice(0, 8).map(n => `- ${n.title} [${REGIONS[n.regionIdx].name}]`).join('\n');
-    const prompt = `Du bist Claude Code mit Zugriff auf meinen Obsidian-Vault. Nutze NUR diesen abgerufenen Kontext:\n\n${ctx}\n\nFrage: ${query}\n\nAntworte auf Deutsch, max. 2 kurze Sätze, referenziere die relevantesten Notizen per Namen. Keine Einleitung.`;
+    const prompt = `You are Claude Code with access to my Obsidian vault. Use ONLY this retrieved context:\n\n${ctx}\n\nQuestion: ${query}\n\nAnswer in English, max 2 short sentences, reference the most relevant notes by name. No introduction.`;
 
     let answer;
     try {
@@ -2085,9 +2085,9 @@ function runClaudeQuery(query) {
     } catch (err) {
       // Fallback if claude unavailable
       const top = hits.slice(0, 3).map(n => `<span class="hl">${esc(n.title)}</span>`).join(', ');
-      answer = `Basierend auf ${top} — ${REGIONS[hits[0].regionIdx].subtitle.toLowerCase()}.`;
+      answer = `Based on ${top} — ${REGIONS[hits[0].regionIdx].subtitle.toLowerCase()}.`;
     }
-    thinkingLine.textContent = answer || '(keine Antwort)';
+    thinkingLine.textContent = answer || '(no response)';
     setCtStatus('idle');
   }, hits.length * 85 + 400);
 
@@ -2236,12 +2236,12 @@ tlSlider.addEventListener('input', () => {
   }
   edgeGeom.attributes.alpha.needsUpdate = true;
   if (k >= 0.999) {
-    tlNow.textContent = 'JETZT';
+    tlNow.textContent = 'NOW';
     tlNow.style.color = 'var(--accent)';
     applyPaletteToEdges();
   } else {
     const d = new Date(cutoff);
-    tlNow.textContent = d.toLocaleDateString('de-DE', { month: 'short', year: 'numeric' }).toUpperCase();
+    tlNow.textContent = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).toUpperCase();
     tlNow.style.color = 'var(--ink-1)';
   }
 });
@@ -2250,11 +2250,11 @@ tlSlider.addEventListener('input', () => {
 const bootEl = document.getElementById('boot');
 const bootStatus = document.getElementById('boot-status');
 const BOOT_STEPS = [
-  'Lade Vault-Index…',
-  'Berechne Embeddings…',
-  'Propagiere Synapsen…',
-  'Verbinde mit MCP…',
-  'Gehirn online.'
+  'Loading vault index…',
+  'Computing embeddings…',
+  'Propagating synapses…',
+  'Connecting to MCP…',
+  'Brain online.'
 ];
 let bootIdx = 0;
 const bootTimer = setInterval(() => {
@@ -2267,7 +2267,7 @@ const bootTimer = setInterval(() => {
 
     if (window.innerWidth > 1100) claudeTerm.classList.add('expanded');
     termLine('SYS', `GYSTC · <span class="hl">${graph.nodes.length}</span> nodes · <span class="hl">${graph.edges.length}</span> edges`, { tagClass: 'tag-mem', out: true });
-    termLine('SYS', 'Warte auf Claude Code Aktivität...', { tagClass: 'tag-mem', out: true });
+    termLine('SYS', 'Waiting for Claude Code activity...', { tagClass: 'tag-mem', out: true });
 
     // Global bridge: Python activity server pushes events here
     window.addActivityLine = function(tag, text, tagClass) {
