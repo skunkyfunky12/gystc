@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gystc"
-version = "1.0.0"
+version = "1.0.1"
 description = "Get Your Shit Together, Claude — persistent long-term memory via MCP"
 requires-python = ">=3.11"
 dependencies = [
