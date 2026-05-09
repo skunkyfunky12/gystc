@@ -130,17 +130,19 @@ def handle_brain_store(
         modified_at=now.isoformat(),
     )
 
-    # FIX 10: Handle embedding failure gracefully
     indexed = False
-    try:
-        vec = embedder.embed([content])
-        if old_faiss_idx is not None:
-            vectors.remove([old_faiss_idx])
-        faiss_ids = vectors.add(vec)
-        db.set_faiss_idx(note_id, faiss_ids[0])
-        indexed = True
-    except Exception:
-        pass
+    if not getattr(embedder, 'is_ready', True):
+        pass  # skip embedding if model not loaded yet
+    else:
+        try:
+            vec = embedder.embed([content])
+            if old_faiss_idx is not None:
+                vectors.remove([old_faiss_idx])
+            faiss_ids = vectors.add(vec)
+            db.set_faiss_idx(note_id, faiss_ids[0])
+            indexed = True
+        except Exception:
+            pass
 
     result = {
         "path": rel_path,

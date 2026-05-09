@@ -219,7 +219,7 @@ def brain_regions(action: str, region: str | None = None, description: str | Non
     return handle_brain_regions(state.db, action=action, region=region, description=description, color=color)
 
 @mcp.tool()
-def brain_retrieve(query: str, region: str | None = None, limit: int = 10, threshold: float = 0.3) -> list[dict]:
+async def brain_retrieve(query: str, region: str | None = None, limit: int = 10, threshold: float = 0.3) -> list[dict]:
     """Search the vault by meaning AND keywords. Use proactively whenever vault knowledge could improve your answer.
 
     Combines semantic search (FAISS) with keyword search (FTS5) via Reciprocal Rank Fusion.
@@ -235,13 +235,17 @@ def brain_retrieve(query: str, region: str | None = None, limit: int = 10, thres
         limit: Max results (default 10, max 100)
         threshold: Min similarity (default 0.3)
     """
+    import asyncio
     state: BrainState = mcp.get_context().request_context.lifespan_context
     if not state.embedder.wait_ready(timeout=90):
         return [{"error": "Embedding model still loading. Use brain_status to check, or try brain_recent/brain_regions instead."}]
-    return handle_brain_retrieve(state.db, state.vectors, state.embedder, query=query, region=region, limit=limit, threshold=threshold, reranker=state.reranker)
+    return await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: handle_brain_retrieve(state.db, state.vectors, state.embedder, query=query, region=region, limit=limit, threshold=threshold, reranker=state.reranker),
+    )
 
 @mcp.tool()
-def brain_store(title: str, content: str, region: str | None = None, region_idx: int | None = None,
+async def brain_store(title: str, content: str, region: str | None = None, region_idx: int | None = None,
                 tags: list[str] | None = None, folder: str = "") -> dict:
     """Save knowledge to the vault. Use when you learn something worth remembering long-term.
 
@@ -259,17 +263,21 @@ def brain_store(title: str, content: str, region: str | None = None, region_idx:
         tags: Additional tags (max 20)
         folder: Subfolder in vault (e.g. "02 Projekte")
     """
+    import asyncio
     state: BrainState = mcp.get_context().request_context.lifespan_context
     if state.config.vault_path is None:
         return {"error": "No vault_path configured"}
-    return handle_brain_store(
-        state.db, state.vectors, state.embedder, state.config.vault_path,
-        title=title, content=content, region=region, region_idx=region_idx,
-        tags=tags, folder=folder, watcher=state.watcher,
+    return await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: handle_brain_store(
+            state.db, state.vectors, state.embedder, state.config.vault_path,
+            title=title, content=content, region=region, region_idx=region_idx,
+            tags=tags, folder=folder, watcher=state.watcher,
+        ),
     )
 
 @mcp.tool()
-def brain_related(title: str | None = None, path: str | None = None, limit: int = 10) -> list[dict] | dict:
+async def brain_related(title: str | None = None, path: str | None = None, limit: int = 10) -> list[dict] | dict:
     """Explore connections from a specific note. Finds related notes via backlinks and semantic similarity.
 
     Use to discover related knowledge, follow thought chains, or understand how topics connect.
@@ -279,13 +287,17 @@ def brain_related(title: str | None = None, path: str | None = None, limit: int 
         path: Note path (alternative to title)
         limit: Max results (default 10, max 100)
     """
+    import asyncio
     state: BrainState = mcp.get_context().request_context.lifespan_context
     if not state.embedder.wait_ready(timeout=90):
         return {"error": "Embedding model still loading. Use brain_status to check."}
-    return handle_brain_related(state.db, state.vectors, state.embedder, title=title, path=path, limit=limit)
+    return await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: handle_brain_related(state.db, state.vectors, state.embedder, title=title, path=path, limit=limit),
+    )
 
 @mcp.tool()
-def brain_context(file_paths: list[str] | None = None, task_description: str | None = None,
+async def brain_context(file_paths: list[str] | None = None, task_description: str | None = None,
                   depth: int = 1, max_notes: int = 10) -> list[dict] | dict:
     """Load vault context relevant to your current work. Use when switching tasks or starting new work.
 
@@ -302,44 +314,53 @@ def brain_context(file_paths: list[str] | None = None, task_description: str | N
         depth: Backlink graph hops 1-3 (default 1, higher = broader context)
         max_notes: Max notes returned (default 10, max 100)
     """
+    import asyncio
     state: BrainState = mcp.get_context().request_context.lifespan_context
     if task_description and not state.embedder.wait_ready(timeout=90):
         return {"error": "Embedding model still loading. Use brain_status to check, or try without task_description."}
-    return handle_brain_context(state.db, state.vectors, state.embedder,
-                                 file_paths=file_paths, task_description=task_description,
-                                 depth=depth, max_notes=max_notes)
+    return await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: handle_brain_context(state.db, state.vectors, state.embedder,
+                                     file_paths=file_paths, task_description=task_description,
+                                     depth=depth, max_notes=max_notes),
+    )
 
 @mcp.tool()
-def brain_reindex(force: bool = False) -> dict:
+async def brain_reindex(force: bool = False) -> dict:
     """Re-index the vault. Use after bulk edits, graphify exports, or when results seem stale.
 
     Args:
         force: Re-embed all notes even if unchanged (default: false)
     """
+    import asyncio
     import time
     state: BrainState = mcp.get_context().request_context.lifespan_context
     if state.config.vault_path is None or not state.config.vault_path.is_dir():
         return {"error": "No vault_path configured or directory not found"}
-    t0 = time.time()
-    try:
-        count = index_vault(state.db, state.vectors, state.embedder,
-                            state.config.vault_path, state.config.folder_to_region, force=force)
-    except Exception as exc:
-        print(f"ERROR: Reindex failed: {exc}", file=sys.stderr)
-        return {"error": f"Reindex failed during indexing: {exc}", "indexed": 0}
-    save_warning = None
-    try:
-        state.vectors.save(state.config.index_path)
-    except Exception as exc:
-        save_warning = str(exc)
-        print(f"ERROR: Failed to save index after reindex: {exc}", file=sys.stderr)
-    total = len(state.db.get_all_notes())
-    elapsed = round(time.time() - t0, 1)
-    print(f"Reindex complete: {count} new/changed, {total} total in {elapsed}s", file=sys.stderr)
-    result = {"indexed": count, "total": total, "elapsed_seconds": elapsed}
-    if save_warning:
-        result["warning"] = f"Index not persisted to disk: {save_warning}"
-    return result
+
+    def _do_reindex():
+        t0 = time.time()
+        try:
+            count = index_vault(state.db, state.vectors, state.embedder,
+                                state.config.vault_path, state.config.folder_to_region, force=force)
+        except Exception as exc:
+            print(f"ERROR: Reindex failed: {exc}", file=sys.stderr)
+            return {"error": f"Reindex failed during indexing: {exc}", "indexed": 0}
+        save_warning = None
+        try:
+            state.vectors.save(state.config.index_path)
+        except Exception as exc:
+            save_warning = str(exc)
+            print(f"ERROR: Failed to save index after reindex: {exc}", file=sys.stderr)
+        total = len(state.db.get_all_notes())
+        elapsed = round(time.time() - t0, 1)
+        print(f"Reindex complete: {count} new/changed, {total} total in {elapsed}s", file=sys.stderr)
+        result = {"indexed": count, "total": total, "elapsed_seconds": elapsed}
+        if save_warning:
+            result["warning"] = f"Index not persisted to disk: {save_warning}"
+        return result
+
+    return await asyncio.get_event_loop().run_in_executor(None, _do_reindex)
 
 @mcp.tool()
 def brain_reclassify(dry_run: bool = True) -> dict:
