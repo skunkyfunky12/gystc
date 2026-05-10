@@ -68,7 +68,7 @@ class SentenceTransformerBackend:
     @property
     def is_ready(self) -> bool:
         """Check if the model is loaded without blocking."""
-        return self._ready.is_set()
+        return self._ready.is_set() and self._model is not None
 
     @property
     def dimension(self) -> int:

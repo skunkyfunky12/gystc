@@ -202,6 +202,7 @@ def brain_status() -> dict:
         "edge_types": edge_types,
         "regions": region_dist,
         "model_loaded": state.embedder.is_ready,
+        "reranker_enabled": state.reranker is not None,
         "reranker_loaded": state.reranker.is_ready if state.reranker else False,
         "vault_path": str(state.config.vault_path),
     }
@@ -263,7 +264,7 @@ async def brain_retrieve(
     """
     state: BrainState = mcp.get_context().request_context.lifespan_context
 
-    needs_model = query is not None and not (file_paths and not query)
+    needs_model = bool(query) and not (file_paths and not query)
     fts_only = False
 
     if needs_model and not state.embedder.is_ready:
@@ -281,12 +282,13 @@ async def brain_retrieve(
 
     try:
         result = await asyncio.wait_for(
-            asyncio.get_event_loop().run_in_executor(None, _do),
+            asyncio.get_running_loop().run_in_executor(None, _do),
             timeout=TOOL_TIMEOUT,
         )
-        if fts_only and query:
-            if isinstance(result, list):
-                result.insert(0, {"notice": "Model still loading — showing keyword-only results. Semantic search available after model loads."})
+        if fts_only and query and isinstance(result, list):
+            for entry in result:
+                if isinstance(entry, dict):
+                    entry["fts_only"] = True
         return result
     except asyncio.TimeoutError:
         return [{"error": f"brain_retrieve timed out after {TOOL_TIMEOUT}s."}]
@@ -309,7 +311,7 @@ async def brain_store(title: str, content: str, region: str | None = None, regio
         return {"error": "No vault_path configured"}
     try:
         return await asyncio.wait_for(
-            asyncio.get_event_loop().run_in_executor(
+            asyncio.get_running_loop().run_in_executor(
                 None,
                 lambda: handle_brain_store(
                     state.db, state.vectors, state.embedder, state.config.vault_path,
@@ -342,7 +344,7 @@ async def brain_related(title: str | None = None, path: str | None = None, limit
 
     try:
         return await asyncio.wait_for(
-            asyncio.get_event_loop().run_in_executor(None, _do),
+            asyncio.get_running_loop().run_in_executor(None, _do),
             timeout=TOOL_TIMEOUT,
         )
     except asyncio.TimeoutError:

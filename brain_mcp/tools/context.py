@@ -1,4 +1,6 @@
 # brain_mcp/tools/context.py
+# DEPRECATED: Merged into brain_mcp/tools/retrieve.py (brain_retrieve with file_paths param).
+# Kept for backward compatibility with tests. Do not use in new code.
 from __future__ import annotations
 
 import json
