@@ -47,11 +47,12 @@ class SentenceTransformerBackend:
                 self._model = SentenceTransformer(self._model_name)
                 elapsed = time.perf_counter() - t0
                 print(f"Model loaded in {elapsed:.1f}s.", file=sys.stderr)
-                self._ready.set()
             except Exception as exc:
                 import traceback
                 print(f"ERROR loading embedding model: {exc}", file=sys.stderr)
                 traceback.print_exc(file=sys.stderr)
+            finally:
+                self._ready.set()
 
     def _get_model(self):
         """Thread-safe model accessor. Loads on first call, returns cached reference."""
