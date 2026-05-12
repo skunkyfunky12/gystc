@@ -32,6 +32,10 @@ class CrossEncoderReRanker:
         with self._lock:
             if self._model is not None:
                 return
+            import os
+            os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+            os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+            os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
             t0 = time.perf_counter()
             print(f"Loading re-ranker model: {self._model_name}...", file=sys.stderr)
             try:
@@ -39,9 +43,9 @@ class CrossEncoderReRanker:
                 self._model = CrossEncoder(self._model_name)
                 elapsed = time.perf_counter() - t0
                 print(f"Re-ranker loaded in {elapsed:.1f}s.", file=sys.stderr)
-                self._ready.set()
             except Exception as exc:
                 print(f"ERROR loading re-ranker: {exc}", file=sys.stderr)
+            finally:
                 self._ready.set()
 
     @property

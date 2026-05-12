@@ -131,9 +131,7 @@ def handle_brain_store(
     )
 
     indexed = False
-    if not getattr(embedder, 'is_ready', True):
-        pass  # skip embedding if model not loaded yet
-    else:
+    if getattr(embedder, 'is_ready', True):
         try:
             vec = embedder.embed([content])
             if old_faiss_idx is not None:

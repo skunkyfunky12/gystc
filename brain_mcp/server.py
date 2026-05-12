@@ -24,7 +24,7 @@ from brain_mcp.tools.classify_tool import handle_brain_classify, handle_brain_cl
 from brain_mcp.tools.versioning import handle_brain_history, handle_brain_diff, handle_brain_rollback
 from brain_mcp.indexer.reranker import CrossEncoderReRanker
 
-WAIT_READY_TIMEOUT = 10
+WAIT_READY_TIMEOUT = 20
 TOOL_TIMEOUT = 30
 
 
@@ -73,6 +73,8 @@ def _handle_file_change(state: BrainState, path: str, event_type: str) -> None:
         tags=note["tags"], word_count=note["word_count"],
         created_at=note["created_at"], modified_at=note["modified_at"],
     )
+    if not state.embedder.is_ready:
+        return
     try:
         vec = state.embedder.embed([note["content"]])
         faiss_ids = state.vectors.add(vec)
@@ -264,32 +266,32 @@ async def brain_retrieve(
     """
     state: BrainState = mcp.get_context().request_context.lifespan_context
 
-    needs_model = bool(query) and not (file_paths and not query)
-    fts_only = False
-
-    if needs_model and not state.embedder.is_ready:
-        waited = state.embedder.wait_ready(timeout=WAIT_READY_TIMEOUT)
-        if not waited or not state.embedder.is_ready:
-            fts_only = True
-
     def _do():
-        return handle_brain_retrieve(
+        needs_model = bool(query) and not (file_paths and not query)
+        fts_only = False
+
+        if needs_model and not state.embedder.is_ready:
+            state.embedder.wait_ready(timeout=WAIT_READY_TIMEOUT)
+            if not state.embedder.is_ready:
+                fts_only = True
+
+        result = handle_brain_retrieve(
             state.db, state.vectors, state.embedder,
             query=query, region=region, limit=limit, threshold=threshold,
             reranker=state.reranker, file_paths=file_paths, depth=depth,
             fts_only=fts_only,
-        )
-
-    try:
-        result = await asyncio.wait_for(
-            asyncio.get_running_loop().run_in_executor(None, _do),
-            timeout=TOOL_TIMEOUT,
         )
         if fts_only and query and isinstance(result, list):
             for entry in result:
                 if isinstance(entry, dict):
                     entry["fts_only"] = True
         return result
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.get_running_loop().run_in_executor(None, _do),
+            timeout=TOOL_TIMEOUT,
+        )
     except asyncio.TimeoutError:
         return [{"error": f"brain_retrieve timed out after {TOOL_TIMEOUT}s."}]
 

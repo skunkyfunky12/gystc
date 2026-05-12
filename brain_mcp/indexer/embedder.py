@@ -37,7 +37,15 @@ class SentenceTransformerBackend:
         with self._load_lock:
             if self._model is not None:
                 return
+            import logging
+            import os
             import time
+            os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+            os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+            os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+            os.environ.setdefault("HF_HUB_OFFLINE", "1")
+            logging.getLogger("httpx").setLevel(logging.WARNING)
+            logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
             t0 = time.perf_counter()
             print(
                 f"Loading embedding model: {self._model_name}...", file=sys.stderr
