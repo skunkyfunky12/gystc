@@ -1534,8 +1534,72 @@ function searchNodes(query) {
   return scored.slice(0, 30);
 }
 
+// ===== SEMANTIC SEARCH — async backend via /api/search =====
+let _semanticAbort = null;
+
+async function semanticSearch(query) {
+  if (_semanticAbort) _semanticAbort.abort();
+  const controller = new AbortController();
+  _semanticAbort = controller;
+  try {
+    const res = await fetch('/api/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, limit: 20 }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.results || [];
+  } catch (e) {
+    if (e.name !== 'AbortError') console.warn('Semantic search failed:', e);
+    return [];
+  }
+}
+
+function mapSemanticToNodes(semanticResults) {
+  const mapped = [];
+  for (const sr of semanticResults) {
+    const path = sr.path || '';
+    const title = sr.title || '';
+    for (let i = 0; i < graph.nodes.length; i++) {
+      const n = graph.nodes[i];
+      if (n.source_file === path || n.title === title) {
+        mapped.push({
+          node: n,
+          score: (sr.similarity || 0) * 10 + 50,
+          id: i,
+          snippet: sr.snippet || '',
+          semantic: true,
+        });
+        break;
+      }
+    }
+  }
+  return mapped;
+}
+
+function mergeResults(localResults, semanticMapped) {
+  const seen = new Set(localResults.map(r => r.id));
+  const merged = localResults.map(r => ({ ...r, semantic: false }));
+  for (const sr of semanticMapped) {
+    if (!seen.has(sr.id)) {
+      merged.push(sr);
+      seen.add(sr.id);
+    } else {
+      const existing = merged.find(r => r.id === sr.id);
+      if (existing) {
+        existing.score += sr.score * 0.5;
+        existing.snippet = sr.snippet;
+        existing.semantic = true;
+      }
+    }
+  }
+  merged.sort((a, b) => b.score - a.score);
+  return merged.slice(0, 30);
+}
+
 function renderSearchResults(results, query) {
-  // Clear previous
   while (searchResults.firstChild) searchResults.removeChild(searchResults.firstChild);
   if (!results.length || !query) {
     searchResults.classList.remove('visible');
@@ -1543,16 +1607,16 @@ function renderSearchResults(results, query) {
   }
   const palette = PALETTES[state.palette];
   const isFiltered = state.searchFilter !== null;
+  const hasSemantic = results.some(r => r.semantic);
 
-  // Header
   const head = document.createElement('div');
   head.className = 'sr-head';
   const headLabel = document.createElement('span');
-  headLabel.textContent = results.length + ' Ergebnisse';
+  headLabel.textContent = results.length + ' results' + (hasSemantic ? ' (semantic)' : '');
   head.appendChild(headLabel);
   const filterBtn = document.createElement('button');
   filterBtn.className = 'sr-filter-btn' + (isFiltered ? ' active' : '');
-  filterBtn.textContent = isFiltered ? '\u2715 Filter aus' : '\u2295 Nur diese';
+  filterBtn.textContent = isFiltered ? '\u2715 Filter off' : '\u2295 Filter';
   filterBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     if (state.searchFilter) {
@@ -1565,7 +1629,6 @@ function renderSearchResults(results, query) {
   head.appendChild(filterBtn);
   searchResults.appendChild(head);
 
-  // Result items
   for (const r of results) {
     const col = palette[r.node.regionIdx];
     const rName = REGIONS[r.node.regionIdx].name;
@@ -1585,6 +1648,12 @@ function renderSearchResults(results, query) {
     item.appendChild(dot);
     item.appendChild(titleEl);
     item.appendChild(regionEl);
+    if (r.semantic && r.snippet) {
+      const snippetEl = document.createElement('div');
+      snippetEl.className = 'sr-snippet';
+      snippetEl.textContent = r.snippet.slice(0, 120) + (r.snippet.length > 120 ? '...' : '');
+      item.appendChild(snippetEl);
+    }
     item.addEventListener('click', () => {
       flyToNode(r.id);
       selectNode(r.id);
@@ -1651,6 +1720,7 @@ function flyToNode(id) {
 }
 
 let _searchDebounce = null;
+let _semanticDebounce = null;
 searchInput.addEventListener('input', () => {
   clearTimeout(_searchDebounce);
   _searchDebounce = setTimeout(() => {
@@ -1674,6 +1744,26 @@ searchInput.addEventListener('input', () => {
       nodeGeometry.attributes.alpha.needsUpdate = true;
     }
   }, 120);
+
+  clearTimeout(_semanticDebounce);
+  _semanticDebounce = setTimeout(async () => {
+    const q = searchInput.value.trim();
+    if (q.length < 3) return;
+    const semanticResults = await semanticSearch(q);
+    if (!semanticResults.length) return;
+    if (searchInput.value.trim() !== q) return;
+    const localResults = searchNodes(q);
+    const semanticMapped = mapSemanticToNodes(semanticResults);
+    const merged = mergeResults(localResults, semanticMapped);
+    renderSearchResults(merged, q);
+    if (!state.searchFilter) {
+      const hitIds = new Set(merged.map(r => r.id));
+      for (let i = 0; i < graph.nodes.length; i++) {
+        nodeAlpha[i] = hitIds.has(i) ? 1.0 : 0.15;
+      }
+      nodeGeometry.attributes.alpha.needsUpdate = true;
+    }
+  }, 400);
 });
 
 searchInput.addEventListener('keydown', (e) => {
