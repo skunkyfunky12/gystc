@@ -39,6 +39,8 @@ def tmp_config_dir(tmp_path, tmp_vault):
 class MockEmbedder:
     """Deterministic embedder for testing. Maps text hash to a fixed 384-dim vector."""
 
+    is_ready = True
+
     @property
     def dimension(self) -> int:
         return 384

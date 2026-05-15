@@ -25,6 +25,31 @@ ACTIVITY_PORT = 9500
 
 
 CONFIG_API_MAX_BODY = 8192
+SEARCH_API_MAX_BODY = 8192
+
+# Module-level search state cache (lazy-loaded)
+_search_state_cache: dict = {}
+
+
+def _get_search_state():
+    """Return (db, vectors, embedder) tuple, cached after first call."""
+    cached = _search_state_cache.get("instance")
+    if cached is not None:
+        return cached
+
+    from brain_mcp.config import load_config
+    from brain_mcp.storage.database import BrainDB
+    from brain_mcp.indexer.vector_store import VectorStore
+    from brain_mcp.indexer.embedder import SentenceTransformerBackend
+
+    config = load_config()
+    db = BrainDB(config.db_path)
+    embedder = SentenceTransformerBackend(config.model_name)
+    vectors = VectorStore.load(config.index_path, dimension=embedder.dimension)
+    threading.Thread(target=embedder._load, daemon=True).start()
+    state = (db, vectors, embedder)
+    _search_state_cache["instance"] = state
+    return state
 
 
 def _make_web_handler(directory: Path):
@@ -53,6 +78,8 @@ def _make_web_handler(directory: Path):
                 self._handle_config_post()
             elif self.path == "/api/reindex":
                 self._handle_reindex()
+            elif self.path == "/api/search":
+                self._handle_search()
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -163,6 +190,43 @@ def _make_web_handler(directory: Path):
                     self._json_response(200, {"indexed": count, "elapsed": elapsed})
                 finally:
                     db.close()
+            except Exception as e:
+                self._json_response(500, {"error": str(e)})
+
+        def _handle_search(self):
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                if length == 0 or length > SEARCH_API_MAX_BODY:
+                    self._json_response(413 if length > SEARCH_API_MAX_BODY else 400,
+                                        {"error": "Invalid body size"})
+                    return
+                body = self.rfile.read(length).decode("utf-8")
+                try:
+                    params = json.loads(body)
+                except json.JSONDecodeError:
+                    self._json_response(400, {"error": "Invalid JSON"})
+                    return
+
+                query = str(params.get("query", "")).strip()[:1000]
+                if not query:
+                    self._json_response(200, {"results": []})
+                    return
+
+                region = params.get("region")
+                limit = max(1, min(int(params.get("limit", 20)), 50))
+
+                from brain_mcp.tools.retrieve import handle_brain_retrieve
+                db, vectors, embedder = _get_search_state()
+                fts_only = not embedder.is_ready
+                results = handle_brain_retrieve(
+                    db, vectors, embedder,
+                    query=query, region=region, limit=limit,
+                    threshold=0.2, fts_only=fts_only,
+                )
+                if isinstance(results, list) and results and isinstance(results[0], dict) and "error" in results[0]:
+                    self._json_response(500, results[0])
+                    return
+                self._json_response(200, {"results": results, "fts_only": fts_only})
             except Exception as e:
                 self._json_response(500, {"error": str(e)})
 
