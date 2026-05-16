@@ -27,7 +27,6 @@ MAX_TITLE_LEN = 200
 MAX_TAGS = 20
 MAX_TAG_LEN = 100
 
-# REVIEW FIX: Robust REGION_NAME_TO_SLUG construction
 IDX_TO_SLUG = {idx: slug for slug, idx in REGION_TAG_TO_IDX.items()}
 REGION_NAME_TO_SLUG = {REGION_NAMES[idx]: slug for idx, slug in IDX_TO_SLUG.items()}
 
@@ -54,7 +53,6 @@ def handle_brain_store(
     if len(content) > MAX_CONTENT_SIZE:
         return {"error": f"Content exceeds {MAX_CONTENT_SIZE} byte limit"}
 
-    # FIX 11: Validate region_idx range
     if region_idx is not None and not (0 <= region_idx < 12):
         return {"error": f"region_idx must be 0-11, got {region_idx}"}
 
@@ -62,7 +60,6 @@ def handle_brain_store(
     if not safe_title:
         return {"error": "Title is empty after sanitization"}
 
-    # REVIEW FIX: Warn on sanitized title
     title_was_sanitized = safe_title != title
 
     tags = (tags or [])[:MAX_TAGS]
@@ -95,7 +92,6 @@ def handle_brain_store(
         rel_path = f"{folder_clean}/{safe_title}.md" if folder_clean else f"{safe_title}.md"
         r_idx = classify_region(safe_title, content, path=rel_path)
 
-    # REVIEW FIX: Strip existing #brain/ tags before appending new one
     content = _BRAIN_TAG_RE.sub('', content).rstrip()
     region_slug = REGION_NAME_TO_SLUG.get(REGION_NAMES[r_idx])
     if region_slug:
@@ -116,7 +112,6 @@ def handle_brain_store(
 
     rel_path = str(target.relative_to(vault_root)).replace("\\", "/")
 
-    # REVIEW FIX: Use UTC timestamps
     now = datetime.now(timezone.utc)
     content_hash = compute_content_hash(content)
     word_count = len(content.split())
@@ -151,7 +146,6 @@ def handle_brain_store(
         "word_count": word_count,
     }
 
-    # REVIEW FIX: Warn on sanitized title
     if title_was_sanitized:
         result["title_sanitized"] = True
         result["original_title"] = title

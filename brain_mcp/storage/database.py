@@ -204,34 +204,6 @@ class BrainDB:
             )
             self._conn.commit()
 
-    def bulk_upsert_edges(self, edges: list[tuple]) -> int:
-        """Bulk insert/update edges. Each tuple: (source_id, target_id, link_text, edge_type, weight, confidence, source_file)."""
-        with self._lock:
-            self._conn.executemany(
-                """INSERT INTO edges (source_id, target_id, link_text, edge_type, weight, confidence, source_file)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(source_id, target_id) DO UPDATE SET
-                     link_text=excluded.link_text, edge_type=excluded.edge_type,
-                     weight=excluded.weight, confidence=excluded.confidence,
-                     source_file=excluded.source_file""",
-                edges,
-            )
-            self._conn.commit()
-            return len(edges)
-
-    def delete_edges_by_type(self, edge_type: str) -> int:
-        """Delete all edges of a specific type. Returns count deleted."""
-        with self._lock:
-            cursor = self._conn.execute("DELETE FROM edges WHERE edge_type = ?", (edge_type,))
-            self._conn.commit()
-            return cursor.rowcount
-
-    def delete_edges_by_type_prefix(self, prefix: str) -> int:
-        """Delete all edges whose type starts with prefix (e.g. 'graphify:')."""
-        with self._lock:
-            cursor = self._conn.execute("DELETE FROM edges WHERE edge_type LIKE ?", (prefix + "%",))
-            self._conn.commit()
-            return cursor.rowcount
 
     def replace_edges_by_type_prefix(self, prefix: str, edges: list[tuple]) -> tuple[int, int]:
         """Atomically delete all edges with prefix and insert new ones in a single transaction.

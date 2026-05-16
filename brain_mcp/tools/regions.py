@@ -47,7 +47,6 @@ def _customize_region(db: BrainDB, region_name: str, description: str | None, co
     idx = resolve_region_idx(region_name)
     if idx is None:
         return {"error": f"Unknown region: {region_name}"}
-    # REVIEW FIX: validate hex color
     if color and not re.match(r'^#[0-9A-Fa-f]{6}$', color):
         return {"error": "Color must be a hex color like #FF0000"}
     db.update_region(idx, description=description, color=color)

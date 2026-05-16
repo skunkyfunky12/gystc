@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import difflib
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from brain_mcp.storage.database import BrainDB
+
+if TYPE_CHECKING:
+    from brain_mcp.indexer.watcher import BrainWatcher
 
 
 def handle_brain_history(db: BrainDB, path: str) -> list[dict] | dict:
@@ -55,7 +59,7 @@ def handle_brain_rollback(
     vault_path: Path,
     path: str,
     version_id: int,
-    watcher=None,
+    watcher: BrainWatcher | None = None,
 ) -> dict:
     note = db.get_note_by_path(path)
     if note is None:

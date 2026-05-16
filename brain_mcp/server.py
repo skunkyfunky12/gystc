@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 from mcp.server.fastmcp import FastMCP
 from brain_mcp.config import BrainConfig, load_config
 from brain_mcp.indexer.embedder import SentenceTransformerBackend
@@ -284,7 +285,7 @@ async def brain_recent(days: int = 7, region: str | None = None, limit: int = 20
         return [{"error": f"brain_recent timed out after {TOOL_TIMEOUT}s."}]
 
 @mcp.tool()
-async def brain_regions(action: str, region: str | None = None, description: str | None = None, color: str | None = None) -> dict | list[dict]:
+async def brain_regions(action: Literal["list", "describe", "customize"], region: str | None = None, description: str | None = None, color: str | None = None) -> dict | list[dict]:
     """List, describe, or customize brain regions.
 
     Args:
@@ -430,7 +431,7 @@ async def brain_related(title: str | None = None, path: str | None = None, limit
 
 @mcp.tool()
 async def brain_classify(
-    action: str = "classify",
+    action: Literal["classify", "reclassify", "feedback"] = "classify",
     title: str | None = None,
     path: str | None = None,
     content: str | None = None,
@@ -488,7 +489,7 @@ async def brain_classify(
 
 @mcp.tool()
 async def brain_versions(
-    action: str,
+    action: Literal["history", "diff", "rollback"],
     path: str = "",
     version_id: int | None = None,
 ) -> dict | list[dict]:

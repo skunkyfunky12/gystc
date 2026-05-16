@@ -211,7 +211,7 @@ class SetupWizard(QDialog):
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
 
-        repo_url = "git+https://github.com/skunkyfunky12/neural-brain.git"
+        repo_url = "git+https://github.com/skunkyfunky12/gystc.git"
         try:
             r = subprocess.run(
                 [python_cmd, "-m", "pip", "install", repo_url],
@@ -358,7 +358,7 @@ def _fallback_claude_template() -> str:
         "# GYSTC -- Instructions for Claude\n\n"
         "You have a persistent long-term memory via the GYSTC MCP server.\n"
         "Your vault is your brain -- search it BEFORE answering from general knowledge.\n\n"
-        "## Tools: brain_retrieve, brain_store, brain_context, brain_recent, brain_related\n"
+        "## Tools: brain_retrieve, brain_store, brain_recent, brain_related, brain_classify, brain_versions\n"
         "## 12 brain regions organize notes by function (not topic).\n"
         "## Search proactively. Store sparingly. Reference paths.\n\n"
         "Full docs: https://gystc.dev\n"
