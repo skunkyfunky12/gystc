@@ -26,6 +26,7 @@ from brain_mcp.indexer.reranker import CrossEncoderReRanker
 
 WAIT_READY_TIMEOUT = 20
 TOOL_TIMEOUT = 30
+FAISS_SAVE_INTERVAL = 60
 
 
 @dataclass
@@ -86,6 +87,38 @@ def _handle_file_change(state: BrainState, path: str, event_type: str) -> None:
         print(f"Embedding error for {rel}: {exc}", file=sys.stderr)
 
 
+def _kill_zombie_siblings() -> None:
+    """Kill other brain_mcp serve processes from previous sessions."""
+    import os
+    try:
+        import psutil
+    except ImportError:
+        return
+    my_pid = os.getpid()
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            if proc.pid == my_pid:
+                continue
+            cmdline = proc.info.get("cmdline") or []
+            if any("brain_mcp" in arg for arg in cmdline) and any("serve" in arg for arg in cmdline):
+                print(f"Killing zombie GYSTC process: PID {proc.pid}", file=sys.stderr)
+                proc.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
+
+def _periodic_faiss_save(state: BrainState) -> None:
+    """Save FAISS index periodically so it survives process kills."""
+    import time
+    while True:
+        time.sleep(FAISS_SAVE_INTERVAL)
+        try:
+            if state.vectors.size > 0:
+                state.vectors.save(state.config.index_path)
+        except Exception as exc:
+            print(f"WARNING: Periodic FAISS save failed: {exc}", file=sys.stderr)
+
+
 def _background_startup(state: BrainState, model_thread: threading.Thread) -> None:
     try:
         vault_exists = state.config.vault_path is not None and state.config.vault_path.is_dir()
@@ -105,6 +138,12 @@ def _background_startup(state: BrainState, model_thread: threading.Thread) -> No
             watcher = BrainWatcher(state.config.vault_path, lambda p, e: _handle_file_change(state, p, e))
             watcher.start()
             state.watcher = watcher
+        try:
+            state.vectors.save(state.config.index_path)
+        except Exception:
+            pass
+        saver = threading.Thread(target=_periodic_faiss_save, args=(state,), daemon=True)
+        saver.start()
         print("Background startup complete.", file=sys.stderr)
     except Exception as exc:
         import traceback
@@ -116,6 +155,7 @@ def _background_startup(state: BrainState, model_thread: threading.Thread) -> No
 async def brain_lifespan(server: FastMCP) -> AsyncIterator[BrainState]:
     import time
     t0 = time.perf_counter()
+    _kill_zombie_siblings()
     config = load_config()
     config.data_dir.mkdir(parents=True, exist_ok=True)
     db = BrainDB(config.db_path)
@@ -186,31 +226,41 @@ mcp = FastMCP("GYSTC", lifespan=brain_lifespan, instructions=BRAIN_INSTRUCTIONS)
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_status() -> dict:
+async def brain_status() -> dict:
     """Fast health check. Note/edge counts, model status, region distribution. Always instant."""
     state: BrainState = mcp.get_context().request_context.lifespan_context
-    counts = state.db.get_region_note_counts()
-    edge_types = state.db.get_edge_type_counts()
-    from brain_mcp.tools.recent import REGION_NAMES
-    region_dist = {
-        REGION_NAMES[idx]: cnt
-        for idx, cnt in sorted(counts.items())
-        if 0 <= idx < 12
-    }
-    return {
-        "total_notes": state.db.get_note_count(),
-        "total_vectors": state.vectors.size,
-        "total_edges": sum(edge_types.values()),
-        "edge_types": edge_types,
-        "regions": region_dist,
-        "model_loaded": state.embedder.is_ready,
-        "reranker_enabled": state.reranker is not None,
-        "reranker_loaded": state.reranker.is_ready if state.reranker else False,
-        "vault_path": str(state.config.vault_path),
-    }
+
+    def _do():
+        counts = state.db.get_region_note_counts()
+        edge_types = state.db.get_edge_type_counts()
+        from brain_mcp.tools.recent import REGION_NAMES
+        region_dist = {
+            REGION_NAMES[idx]: cnt
+            for idx, cnt in sorted(counts.items())
+            if 0 <= idx < 12
+        }
+        return {
+            "total_notes": state.db.get_note_count(),
+            "total_vectors": state.vectors.size,
+            "total_edges": sum(edge_types.values()),
+            "edge_types": edge_types,
+            "regions": region_dist,
+            "model_loaded": state.embedder.is_ready,
+            "reranker_enabled": state.reranker is not None,
+            "reranker_loaded": state.reranker.is_ready if state.reranker else False,
+            "vault_path": str(state.config.vault_path),
+        }
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.get_running_loop().run_in_executor(None, _do),
+            timeout=TOOL_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        return {"error": f"brain_status timed out after {TOOL_TIMEOUT}s."}
 
 @mcp.tool()
-def brain_recent(days: int = 7, region: str | None = None, limit: int = 20) -> list[dict]:
+async def brain_recent(days: int = 7, region: str | None = None, limit: int = 20) -> list[dict]:
     """Recently changed notes. Instant, no model needed.
 
     Args:
@@ -219,10 +269,20 @@ def brain_recent(days: int = 7, region: str | None = None, limit: int = 20) -> l
         limit: Max results (default 20, max 100)
     """
     state: BrainState = mcp.get_context().request_context.lifespan_context
-    return handle_brain_recent(state.db, days=days, region=region, limit=limit)
+
+    def _do():
+        return handle_brain_recent(state.db, days=days, region=region, limit=limit)
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.get_running_loop().run_in_executor(None, _do),
+            timeout=TOOL_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        return [{"error": f"brain_recent timed out after {TOOL_TIMEOUT}s."}]
 
 @mcp.tool()
-def brain_regions(action: str, region: str | None = None, description: str | None = None, color: str | None = None) -> dict | list[dict]:
+async def brain_regions(action: str, region: str | None = None, description: str | None = None, color: str | None = None) -> dict | list[dict]:
     """List, describe, or customize brain regions.
 
     Args:
@@ -232,7 +292,17 @@ def brain_regions(action: str, region: str | None = None, description: str | Non
         color: Hex color like #FF0000 (customize only)
     """
     state: BrainState = mcp.get_context().request_context.lifespan_context
-    return handle_brain_regions(state.db, action=action, region=region, description=description, color=color)
+
+    def _do():
+        return handle_brain_regions(state.db, action=action, region=region, description=description, color=color)
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.get_running_loop().run_in_executor(None, _do),
+            timeout=TOOL_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        return {"error": f"brain_regions timed out after {TOOL_TIMEOUT}s."}
 
 # ---------------------------------------------------------------------------
 # EMBEDDING TOOLS (need model, have FTS fallback + timeouts)
@@ -357,7 +427,7 @@ async def brain_related(title: str | None = None, path: str | None = None, limit
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def brain_classify(
+async def brain_classify(
     action: str = "classify",
     title: str | None = None,
     path: str | None = None,
@@ -384,31 +454,38 @@ def brain_classify(
     """
     state: BrainState = mcp.get_context().request_context.lifespan_context
 
-    if action == "feedback":
-        if not path:
-            return {"error": "path required for feedback action"}
-        if correct_region_idx is None:
-            return {"error": "correct_region_idx required for feedback action"}
-        return handle_brain_classify_feedback(
-            state.db, state.config.vault_path, state.config.data_dir,
-            path=path, correct_region_idx=correct_region_idx, reason=reason,
-        )
-
-    if action == "reclassify":
-        result = handle_brain_classify(
+    def _do():
+        if action == "feedback":
+            if not path:
+                return {"error": "path required for feedback action"}
+            if correct_region_idx is None:
+                return {"error": "correct_region_idx required for feedback action"}
+            return handle_brain_classify_feedback(
+                state.db, state.config.vault_path, state.config.data_dir,
+                path=path, correct_region_idx=correct_region_idx, reason=reason,
+            )
+        if action == "reclassify":
+            result = handle_brain_classify(
+                state.db, state.config.vault_path,
+                batch=True, apply=apply,
+            )
+            result["dry_run"] = not apply
+            return result
+        return handle_brain_classify(
             state.db, state.config.vault_path,
-            batch=True, apply=apply,
+            title=title, path=path, content=content, batch=False, apply=apply,
         )
-        result["dry_run"] = not apply
-        return result
 
-    return handle_brain_classify(
-        state.db, state.config.vault_path,
-        title=title, path=path, content=content, batch=False, apply=apply,
-    )
+    try:
+        return await asyncio.wait_for(
+            asyncio.get_running_loop().run_in_executor(None, _do),
+            timeout=TOOL_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        return {"error": f"brain_classify timed out after {TOOL_TIMEOUT}s."}
 
 @mcp.tool()
-def brain_versions(
+async def brain_versions(
     action: str,
     path: str = "",
     version_id: int | None = None,
@@ -427,25 +504,30 @@ def brain_versions(
     """
     state: BrainState = mcp.get_context().request_context.lifespan_context
 
-    if not path:
-        return {"error": "path is required"}
+    def _do():
+        if not path:
+            return {"error": "path is required"}
+        if action == "history":
+            return handle_brain_history(state.db, path=path)
+        if action == "diff":
+            if version_id is None:
+                return {"error": "version_id required for diff"}
+            return handle_brain_diff(state.db, path=path, version_id=version_id)
+        if action == "rollback":
+            if version_id is None:
+                return {"error": "version_id required for rollback"}
+            if state.config.vault_path is None:
+                return {"error": "No vault_path configured"}
+            return handle_brain_rollback(
+                state.db, state.config.vault_path, path=path,
+                version_id=version_id, watcher=state.watcher,
+            )
+        return {"error": f"Unknown action: {action}. Use 'history', 'diff', or 'rollback'."}
 
-    if action == "history":
-        return handle_brain_history(state.db, path=path)
-
-    if action == "diff":
-        if version_id is None:
-            return {"error": "version_id required for diff"}
-        return handle_brain_diff(state.db, path=path, version_id=version_id)
-
-    if action == "rollback":
-        if version_id is None:
-            return {"error": "version_id required for rollback"}
-        if state.config.vault_path is None:
-            return {"error": "No vault_path configured"}
-        return handle_brain_rollback(
-            state.db, state.config.vault_path, path=path,
-            version_id=version_id, watcher=state.watcher,
+    try:
+        return await asyncio.wait_for(
+            asyncio.get_running_loop().run_in_executor(None, _do),
+            timeout=TOOL_TIMEOUT,
         )
-
-    return {"error": f"Unknown action: {action}. Use 'history', 'diff', or 'rollback'."}
+    except asyncio.TimeoutError:
+        return {"error": f"brain_versions timed out after {TOOL_TIMEOUT}s."}

@@ -1,7 +1,9 @@
 import json
+import sys
 import threading
 from http.server import HTTPServer
 from pathlib import Path
+from unittest.mock import MagicMock
 from urllib.request import Request, urlopen
 
 import pytest
@@ -9,6 +11,22 @@ import pytest
 from brain_mcp.storage.database import BrainDB
 from brain_mcp.indexer.vector_store import VectorStore
 from tests.conftest import MockEmbedder
+
+# Stub out PyQt6 modules so brain.web_widget can be imported headless
+for _mod in [
+    "PyQt6", "PyQt6.QtCore", "PyQt6.QtWebEngineWidgets",
+    "PyQt6.QtWebChannel", "PyQt6.QtWebEngineCore", "PyQt6.QtGui",
+    "PyQt6.QtWidgets",
+]:
+    if _mod not in sys.modules:
+        sys.modules[_mod] = MagicMock()
+
+# Stub data.regions if not importable without PyQt6 app
+if "data.regions" not in sys.modules:
+    _fake_regions = MagicMock()
+    _fake_regions.COMMUNITY_TO_REGION = {}
+    _fake_regions.REGIONS = [{"name": f"Region {i}"} for i in range(12)]
+    sys.modules["data.regions"] = _fake_regions
 
 
 def _seed_db(db, vectors, embedder):
