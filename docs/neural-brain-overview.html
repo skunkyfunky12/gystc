@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neural Brain — Das KI-Gedächtnis</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #0a0e17;
+    --bg-card: #111827;
+    --bg-card-hover: #1a2332;
+    --border: #1e293b;
+    --border-glow: #3b82f620;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --text-muted: #64748b;
+    --accent: #3b82f6;
+    --accent-glow: #3b82f640;
+    --green: #10b981;
+    --green-glow: #10b98130;
+    --purple: #8b5cf6;
+    --purple-glow: #8b5cf630;
+    --orange: #f59e0b;
+    --orange-glow: #f59e0b30;
+    --red: #ef4444;
+    --cyan: #06b6d4;
+    --cyan-glow: #06b6d430;
+    --pink: #ec4899;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, sans-serif;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* --- Ambient background --- */
+  .ambient {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+  }
+  .ambient-orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(120px);
+    opacity: 0.12;
+    animation: float 20s ease-in-out infinite;
+  }
+  .ambient-orb:nth-child(1) { width: 600px; height: 600px; background: var(--accent); top: -10%; left: -5%; animation-delay: 0s; }
+  .ambient-orb:nth-child(2) { width: 500px; height: 500px; background: var(--purple); top: 30%; right: -10%; animation-delay: -7s; }
+  .ambient-orb:nth-child(3) { width: 400px; height: 400px; background: var(--cyan); bottom: 10%; left: 20%; animation-delay: -14s; }
+  @keyframes float {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(30px, -20px) scale(1.05); }
+    66% { transform: translate(-20px, 15px) scale(0.95); }
+  }
+
+  /* --- Layout --- */
+  .container {
+    position: relative;
+    z-index: 1;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  /* --- Hero --- */
+  .hero {
+    text-align: center;
+    padding: 100px 0 80px;
+  }
+  .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    border-radius: 100px;
+    background: var(--accent-glow);
+    border: 1px solid var(--accent);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--accent);
+    margin-bottom: 32px;
+    letter-spacing: 0.5px;
+  }
+  .hero-badge .dot {
+    width: 6px; height: 6px;
+    background: var(--green);
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 var(--green); }
+    50% { opacity: 0.7; box-shadow: 0 0 0 6px transparent; }
+  }
+  .hero h1 {
+    font-size: clamp(42px, 6vw, 72px);
+    font-weight: 900;
+    letter-spacing: -2px;
+    line-height: 1.1;
+    margin-bottom: 24px;
+    background: linear-gradient(135deg, #fff 0%, var(--accent) 50%, var(--purple) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .hero p {
+    font-size: 20px;
+    color: var(--text-dim);
+    max-width: 650px;
+    margin: 0 auto 48px;
+    font-weight: 300;
+  }
+
+  /* --- Stats bar --- */
+  .stats-bar {
+    display: flex;
+    justify-content: center;
+    gap: 48px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  .stat {
+    text-align: center;
+  }
+  .stat-value {
+    font-size: 36px;
+    font-weight: 800;
+    color: #fff;
+    font-feature-settings: 'tnum';
+  }
+  .stat-label {
+    font-size: 13px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 4px;
+  }
+
+  /* --- Section headers --- */
+  .section {
+    padding: 80px 0;
+  }
+  .section-label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+  .section h2 {
+    font-size: 36px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    margin-bottom: 16px;
+  }
+  .section .subtitle {
+    font-size: 18px;
+    color: var(--text-dim);
+    max-width: 700px;
+    font-weight: 300;
+    margin-bottom: 48px;
+  }
+
+  /* --- Simple explanation cards --- */
+  .simple-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+  }
+  .simple-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    transition: all 0.3s ease;
+  }
+  .simple-card:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--accent);
+    box-shadow: 0 0 40px var(--border-glow);
+    transform: translateY(-2px);
+  }
+  .simple-card .icon {
+    width: 48px; height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    margin-bottom: 20px;
+  }
+  .simple-card h3 {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+  .simple-card p {
+    color: var(--text-dim);
+    font-size: 15px;
+    line-height: 1.8;
+  }
+
+  /* --- How it works (flow) --- */
+  .flow {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    position: relative;
+  }
+  .flow::before {
+    content: '';
+    position: absolute;
+    left: 24px;
+    top: 48px;
+    bottom: 48px;
+    width: 2px;
+    background: linear-gradient(to bottom, var(--accent), var(--purple), var(--cyan));
+    opacity: 0.3;
+  }
+  .flow-step {
+    display: flex;
+    gap: 32px;
+    padding: 24px 0;
+    position: relative;
+  }
+  .flow-num {
+    width: 50px; height: 50px;
+    min-width: 50px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 800;
+    z-index: 1;
+  }
+  .flow-step:nth-child(1) .flow-num { background: var(--accent-glow); color: var(--accent); border: 2px solid var(--accent); }
+  .flow-step:nth-child(2) .flow-num { background: var(--green-glow); color: var(--green); border: 2px solid var(--green); }
+  .flow-step:nth-child(3) .flow-num { background: var(--purple-glow); color: var(--purple); border: 2px solid var(--purple); }
+  .flow-step:nth-child(4) .flow-num { background: var(--orange-glow); color: var(--orange); border: 2px solid var(--orange); }
+  .flow-step:nth-child(5) .flow-num { background: var(--cyan-glow); color: var(--cyan); border: 2px solid var(--cyan); }
+  .flow-content h3 {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .flow-content p {
+    color: var(--text-dim);
+    font-size: 15px;
+  }
+  .flow-content code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    background: #1e293b;
+    padding: 2px 8px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+
+  /* --- Comparison table --- */
+  .comparison {
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .comparison table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .comparison th {
+    background: var(--bg-card);
+    padding: 16px 24px;
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .comparison th:last-child {
+    color: var(--accent);
+  }
+  .comparison td {
+    padding: 14px 24px;
+    font-size: 14px;
+    border-bottom: 1px solid #1e293b20;
+    color: var(--text-dim);
+  }
+  .comparison tr:nth-child(even) { background: #111827; }
+  .comparison tr:nth-child(odd) { background: #0f172a; }
+  .comparison tr:hover { background: var(--bg-card-hover); }
+  .comparison td:last-child { color: var(--green); font-weight: 500; }
+  .check { color: var(--green); }
+  .cross { color: var(--red); opacity: 0.5; }
+  .partial { color: var(--orange); }
+
+  /* --- Pillar detail cards --- */
+  .pillar {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 40px;
+    margin-bottom: 24px;
+    transition: all 0.3s ease;
+  }
+  .pillar:hover {
+    border-color: var(--border);
+    box-shadow: 0 0 60px var(--border-glow);
+  }
+  .pillar-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .pillar-num {
+    font-size: 14px;
+    font-weight: 700;
+    padding: 4px 12px;
+    border-radius: 6px;
+  }
+  .pillar:nth-child(1) .pillar-num { background: var(--accent-glow); color: var(--accent); }
+  .pillar:nth-child(2) .pillar-num { background: var(--green-glow); color: var(--green); }
+  .pillar:nth-child(3) .pillar-num { background: var(--purple-glow); color: var(--purple); }
+  .pillar:nth-child(4) .pillar-num { background: var(--cyan-glow); color: var(--cyan); }
+  .pillar h3 {
+    font-size: 22px;
+    font-weight: 700;
+  }
+  .pillar > p {
+    color: var(--text-dim);
+    font-size: 15px;
+    margin-bottom: 24px;
+    max-width: 800px;
+  }
+  .detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+  }
+  .detail-item {
+    background: #0a0e17;
+    border-radius: 10px;
+    padding: 20px;
+    border: 1px solid #1e293b;
+  }
+  .detail-item .label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+  .detail-item .value {
+    font-size: 15px;
+    font-weight: 500;
+  }
+  .detail-item code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--cyan);
+  }
+
+  /* --- Code block --- */
+  .code-block {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin: 24px 0;
+    overflow-x: auto;
+  }
+  .code-block pre {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.8;
+    color: var(--text-dim);
+  }
+  .code-block .comment { color: var(--text-muted); }
+  .code-block .keyword { color: var(--purple); }
+  .code-block .string { color: var(--green); }
+  .code-block .func { color: var(--accent); }
+  .code-block .arrow { color: var(--orange); }
+
+  /* --- Brain regions visual --- */
+  .regions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+    margin-top: 32px;
+  }
+  .region-chip {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-radius: 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    transition: all 0.2s ease;
+  }
+  .region-chip:hover { border-color: var(--accent); transform: translateX(4px); }
+  .region-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .region-name {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .region-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* --- Footer --- */
+  .footer {
+    text-align: center;
+    padding: 60px 0;
+    color: var(--text-muted);
+    font-size: 13px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* --- Divider --- */
+  .divider {
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--border), transparent);
+    margin: 0;
+  }
+
+  /* --- Responsive --- */
+  @media (max-width: 768px) {
+    .hero { padding: 60px 0 40px; }
+    .hero h1 { font-size: 36px; letter-spacing: -1px; }
+    .stats-bar { gap: 24px; }
+    .stat-value { font-size: 28px; }
+    .section h2 { font-size: 28px; }
+    .pillar { padding: 24px; }
+    .flow::before { left: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="ambient">
+  <div class="ambient-orb"></div>
+  <div class="ambient-orb"></div>
+  <div class="ambient-orb"></div>
+</div>
+
+<div class="container">
+
+  <!-- ============ HERO ============ -->
+  <section class="hero">
+    <div class="hero-badge">
+      <span class="dot"></span>
+      v2 Live &mdash; RAG + CAS
+    </div>
+    <h1>Neural Brain</h1>
+    <p>Ein echtes Langzeitged&auml;chtnis f&uuml;r Claude. Dein Obsidian Vault wird zum lebendigen Gehirn &mdash; mit semantischer Suche, automatischer Versionierung und intelligentem Kontext.</p>
+
+    <div class="stats-bar">
+      <div class="stat">
+        <div class="stat-value">1847</div>
+        <div class="stat-label">Notes</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">11k+</div>
+        <div class="stat-label">Edges</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">12</div>
+        <div class="stat-label">Hirnregionen</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">153</div>
+        <div class="stat-label">Tests</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ============ WAS IST ES (einfach) ============ -->
+  <section class="section">
+    <div class="section-label">Das Konzept</div>
+    <h2>Was ist Neural Brain?</h2>
+    <p class="subtitle">Stell dir vor, Claude h&auml;tte ein echtes Gehirn mit Erinnerungen, Wissen und Kontext &mdash; nicht nur f&uuml;r eine Session, sondern f&uuml;r immer.</p>
+
+    <div class="simple-grid">
+      <div class="simple-card">
+        <div class="icon" style="background: var(--accent-glow);">&#129504;</div>
+        <h3>Dein Vault = Claudes Gehirn</h3>
+        <p>Dein Obsidian Vault mit 1800+ Notes wird zu Claudes Langzeitged&auml;chtnis. Jede Note ist ein Neuron, jeder Backlink eine Synapse. Claude denkt nicht mehr von Null &mdash; er erinnert sich.</p>
+      </div>
+      <div class="simple-card">
+        <div class="icon" style="background: var(--green-glow);">&#128270;</div>
+        <h3>Versteht, nicht nur sucht</h3>
+        <p>Zwei Suchsysteme arbeiten zusammen: semantische Suche versteht die Bedeutung deiner Frage, Keyword-Suche findet exakte Begriffe. Zusammen finden sie alles.</p>
+      </div>
+      <div class="simple-card">
+        <div class="icon" style="background: var(--purple-glow);">&#128337;</div>
+        <h3>Vergisst nichts</h3>
+        <p>Jede &Auml;nderung an einer Note wird automatisch versioniert. Kein Git n&ouml;tig. Du kannst jederzeit zur&uuml;ckrollen, Diffs anschauen und die komplette History einer Note sehen.</p>
+      </div>
+      <div class="simple-card">
+        <div class="icon" style="background: var(--orange-glow);">&#9889;</div>
+        <h3>Denkt proaktiv mit</h3>
+        <p>Beim Start jeder Session schaut Claude automatisch in den Vault und l&auml;dt relevanten Kontext. Er wei&szlig; schon was du tust, bevor du fragst.</p>
+      </div>
+      <div class="simple-card">
+        <div class="icon" style="background: var(--cyan-glow);">&#127959;</div>
+        <h3>12 Hirnregionen</h3>
+        <p>Notes sind in Regionen organisiert wie ein echtes Gehirn: Pr&auml;frontaler Cortex f&uuml;r Architektur, Hippocampus f&uuml;r Erinnerungen, Broca-Areal f&uuml;r KI &amp; Sprache.</p>
+      </div>
+      <div class="simple-card">
+        <div class="icon" style="background: rgba(236,72,153,0.15);">&#128274;</div>
+        <h3>Alles lokal</h3>
+        <p>Kein Cloud-Service, keine API-Abh&auml;ngigkeit. Alles l&auml;uft auf deinem Rechner: SQLite-Datenbank, FAISS-Vektoren, lokales Embedding-Modell. Deine Daten bleiben bei dir.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ============ WIE FUNKTIONIERT ES ============ -->
+  <section class="section">
+    <div class="section-label">Die Pipeline</div>
+    <h2>Wie funktioniert es?</h2>
+    <p class="subtitle">Von der Markdown-Datei zum semantisch durchsuchbaren Vektor &mdash; vollautomatisch im Hintergrund.</p>
+
+    <div class="flow">
+      <div class="flow-step">
+        <div class="flow-num">1</div>
+        <div class="flow-content">
+          <h3>Vault scannen</h3>
+          <p>Der <strong>Scanner</strong> liest jede <code>.md</code> Datei, extrahiert Titel, Inhalt, Tags, Backlinks und berechnet einen Content-Hash (SHA-256). Ge&auml;nderte Dateien werden erkannt, unver&auml;nderte &uuml;bersprungen.</p>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">2</div>
+        <div class="flow-content">
+          <h3>Smart Chunking</h3>
+          <p>Lange Notes (&ge; 500 W&ouml;rter) werden an <code>##</code> und <code>###</code> Headings in Chunks gesplittet. Jeder Chunk erh&auml;lt seinen eigenen Vektor &mdash; so findet die Suche den exakten Abschnitt, nicht nur die ganze Note.</p>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">3</div>
+        <div class="flow-content">
+          <h3>Embedding &amp; Indexing</h3>
+          <p>Ein multilinguales Sentence-Transformer Modell (<code>MiniLM-L12</code>, 384 Dimensionen) wandelt jeden Text in einen Vektor um. FAISS speichert diese Vektoren f&uuml;r Echtzeit-Suche. FTS5 indexiert den Klartext f&uuml;r Keyword-Matching.</p>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">4</div>
+        <div class="flow-content">
+          <h3>Graph aufbauen</h3>
+          <p>Backlinks (<code>[[links]]</code>) werden als Kanten im Graph gespeichert. Zusammen mit automatisch erkannten semantischen Verbindungen entsteht ein Wissensnetz mit 11.000+ Edges.</p>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">5</div>
+        <div class="flow-content">
+          <h3>Hybrid Search</h3>
+          <p>Bei einer Suche laufen FAISS (semantisch) und FTS5 (keyword) parallel. <strong>Reciprocal Rank Fusion</strong> kombiniert beide Rankings zu einem optimalen Ergebnis. Chunk-Treffer zeigen direkt die relevante Sektion.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="code-block">
+      <pre><span class="comment">-- So funktioniert eine Suche unter der Haube --</span>
+
+<span class="string">Vault</span> (.md Dateien)
+  <span class="arrow">&rarr;</span> <span class="func">scanner.py</span>     <span class="comment">(parsen, hashen, Backlinks extrahieren)</span>
+  <span class="arrow">&rarr;</span> <span class="func">chunker.py</span>     <span class="comment">(an ## Headings splitten wenn &ge; 500 W&ouml;rter)</span>
+  <span class="arrow">&rarr;</span> <span class="func">pipeline.py</span>    <span class="comment">(Notes + Chunks embedden, Kanten bauen)</span>
+  <span class="arrow">&rarr;</span> <span class="func">database.py</span>    <span class="comment">(SQLite WAL, FTS5, CAS Versioning)</span>
+  <span class="arrow">&rarr;</span> <span class="func">vector_store.py</span> <span class="comment">(FAISS IndexIDMap2 FlatIP)</span>
+  <span class="arrow">&rarr;</span> <span class="func">retrieve.py</span>    <span class="comment">(RRF: FAISS + FTS5 Fusion, Chunk Dedup)</span>
+  <span class="arrow">&rarr;</span> <span class="func">server.py</span>      <span class="comment">(FastMCP, Tools f&uuml;r Claude)</span></pre>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ============ VERGLEICH ============ -->
+  <section class="section">
+    <div class="section-label">Der Unterschied</div>
+    <h2>Was macht es besser?</h2>
+    <p class="subtitle">Im Vergleich zu Standard-RAG, Claude Memory und manueller Vault-Suche.</p>
+
+    <div class="comparison">
+      <table>
+        <thead>
+          <tr>
+            <th>Feature</th>
+            <th>Standard RAG</th>
+            <th>Claude Memory</th>
+            <th>Manual Grep</th>
+            <th>Neural Brain</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Semantische Suche</td>
+            <td class="check">&#10003;</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
+            <td class="check">&#10003; FAISS + FTS5 Hybrid</td>
+          </tr>
+          <tr>
+            <td>Keyword-Suche</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
+            <td class="check">&#10003;</td>
+            <td class="check">&#10003; FTS5 BM25</td>
+          </tr>
+          <tr>
+            <td>Score Fusion</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
+            <td class="check">&#10003; RRF (k=60)</td>
+          </tr>
+          <tr>
+            <td>Smart Chunking</td>
+            <td class="partial">~ Fixed-Size</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
+            <td class="check">&#10003; Heading-based</td>
+          </tr>
+          <tr>
+            <td>Backlink Graph</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
+            <td class="check">&#10003; 11k+ Edges, BFS</td>
+          </tr>
+          <tr>
+            <td>Auto-Klassifizierung</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
+            <td class="check">&#10003; 12 Hirnregionen</td>
+          </tr>
+          <tr>
+            <td>Versionierung</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
+            <td class="check">&#10003; CAS, 50 pro Note</td>
+          </tr>
+          <tr>
+            <td>Rollback</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
+            <td class="check">&#10003; Diff + Restore</td>
+          </tr>
+          <tr>
+            <td>Auto-Kontext (Session)</td>
+            <td class="cross">&#10007;</td>
+            <td class="partial">~ begrenzt</td>
+            <td class="cross">&#10007;</td>
+            <td class="check">&#10003; Git-aware, &lt;100ms</td>
+          </tr>
+          <tr>
+            <td>Live File-Watching</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
+            <td class="check">&#10003; Watchdog</td>
+          </tr>
+          <tr>
+            <td>100% Lokal</td>
+            <td class="partial">~ meistens</td>
+            <td class="cross">&#10007; Cloud</td>
+            <td class="check">&#10003;</td>
+            <td class="check">&#10003; Kein Cloud-Service</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ============ DEEP DIVE: 4 Pillars ============ -->
+  <section class="section">
+    <div class="section-label">Technische Details</div>
+    <h2>Die vier S&auml;ulen von v2</h2>
+    <p class="subtitle">Jedes Feature im Detail &mdash; was es tut, wie es gebaut ist, warum es so funktioniert.</p>
+
+    <!-- Pillar 1 -->
+    <div class="pillar">
+      <div class="pillar-header">
+        <span class="pillar-num">S&auml;ule 1</span>
+        <h3>CAS + Versioning</h3>
+      </div>
+      <p>Content-Addressable Storage: Jede &Auml;nderung an einer Note wird automatisch versioniert, bevor die neue Version gespeichert wird. Der Vault hat kein Git &mdash; CAS ist das Safety Net.</p>
+
+      <div class="detail-grid">
+        <div class="detail-item">
+          <div class="label">Trigger</div>
+          <div class="value">Bei jedem <code>upsert_note()</code> wenn sich der Content-Hash &auml;ndert</div>
+        </div>
+        <div class="detail-item">
+          <div class="label">Retention</div>
+          <div class="value">Max 50 Versionen pro Note, &auml;lteste werden automatisch gepr&uuml;nt</div>
+        </div>
+        <div class="detail-item">
+          <div class="label">Dedup</div>
+          <div class="value">Kein neuer Eintrag wenn <code>content_hash</code> bereits existiert</div>
+        </div>
+        <div class="detail-item">
+          <div class="label">MCP Tools</div>
+          <div class="value"><code>brain_history</code>, <code>brain_diff</code>, <code>brain_rollback</code></div>
+        </div>
+      </div>
+
+      <div class="code-block">
+        <pre><span class="comment">-- Workflow: Note &auml;ndern &rarr; Version speichern &rarr; Rollback --</span>
+
+<span class="func">brain_history</span>(<span class="string">"02 Projekte/MeinProjekt.md"</span>)
+  <span class="arrow">&rarr;</span> [{id: 42, versioned_at: <span class="string">"2026-05-07"</span>, reason: <span class="string">""</span>}, ...]
+
+<span class="func">brain_diff</span>(<span class="string">"02 Projekte/MeinProjekt.md"</span>, version_id=42)
+  <span class="arrow">&rarr;</span> Unified Diff zwischen Version 42 und aktuellem Stand
+
+<span class="func">brain_rollback</span>(<span class="string">"02 Projekte/MeinProjekt.md"</span>, version_id=42)
+  <span class="arrow">&rarr;</span> Schreibt Version 42 zur&uuml;ck in die .md Datei</pre>
+      </div>
+    </div>
+
+    <!-- Pillar 2 -->
+    <div class="pillar">
+      <div class="pillar-header">
+        <span class="pillar-num">S&auml;ule 2</span>
+        <h3>Smart Chunking</h3>
+      </div>
+      <p>Lange Notes werden intelligent an Markdown-Headings gesplittet. Jeder Chunk bekommt seinen eigenen Vektor &mdash; die Suche findet nicht nur die Note, sondern den exakten Abschnitt.</p>
+
+      <div class="detail-grid">
+        <div class="detail-item">
+          <div class="label">Threshold</div>
+          <div class="value">&ge; 500 W&ouml;rter &rarr; Split</div>
+        </div>
+        <div class="detail-item">
+          <div class="label">Split-Punkte</div>
+          <div class="value"><code>##</code> und <code>###</code> Headings</div>
+        </div>
+        <div class="detail-item">
+          <div class="label">Min-Chunk</div>
+          <div class="value">50 W&ouml;rter (sonst merge mit Nachbar)</div>
+        </div>
+        <div class="detail-item">
+          <div class="label">Vectors</div>
+          <div class="value">~2500&ndash;3500 statt 1847</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pillar 3 -->
+    <div class="pillar">
+      <div class="pillar-header">
+        <span class="pillar-num">S&auml;ule 3</span>
+        <h3>Hybrid Search + RRF</h3>
+      </div>
+      <p>Zwei Suchsysteme laufen parallel und werden &uuml;ber Reciprocal Rank Fusion zu einem optimalen Ranking kombiniert. Weder rein semantisch noch rein keyword-basiert &mdash; beides zusammen.</p>
+
+      <div class="detail-grid">
+        <div class="detail-item">
+          <div class="label">Semantisch</div>
+          <div class="value">FAISS Cosine Similarity (384-dim Vektoren)</div>
+        </div>
+        <div class="detail-item">
+          <div class="label">Keyword</div>
+          <div class="value">FTS5 BM25 Ranking</div>
+        </div>
+        <div class="detail-item">
+          <div class="label">Fusion</div>
+          <div class="value"><code>RRF(d) = 1/(k+rank)</code> mit k=60</div>
+        </div>
+        <div class="detail-item">
+          <div class="label">Zukunft</div>
+          <div class="value">Cross-Encoder Re-Ranker ab ~5000 Notes</div>
+        </div>
+      </div>
+
+      <div class="code-block">
+        <pre><span class="comment">-- Warum RRF statt gewichteter Scores? --</span>
+
+FAISS Cosine Score:  0.0 &mdash; 1.0  <span class="comment">(normalisiert)</span>
+FTS5 BM25 Score:     0.0 &mdash; ???  <span class="comment">(beliebige Skala)</span>
+
+<span class="arrow">&rarr;</span> Scores sind nicht vergleichbar!
+<span class="arrow">&rarr;</span> RRF nutzt <span class="keyword">Ranks</span> statt Scores
+<span class="arrow">&rarr;</span> <span class="func">RRF_score</span>(note) = <span class="string">1/(60 + rank_faiss)</span> + <span class="string">1/(60 + rank_fts)</span>
+<span class="arrow">&rarr;</span> Funktioniert sogar wenn eine Quelle keine Ergebnisse hat</pre>
+      </div>
+    </div>
+
+    <!-- Pillar 4 -->
+    <div class="pillar">
+      <div class="pillar-header">
+        <span class="pillar-num">S&auml;ule 4</span>
+        <h3>SessionStart Auto-Context</h3>
+      </div>
+      <p>Ein Hook der bei jedem Claude Code Sessionstart automatisch relevanten Vault-Kontext injiziert. Nutzt nur FTS5 (kein Model-Loading) &mdash; unter 100ms.</p>
+
+      <div class="detail-grid">
+        <div class="detail-item">
+          <div class="label">Trigger</div>
+          <div class="value">Claude Code <code>SessionStart</code> Hook</div>
+        </div>
+        <div class="detail-item">
+          <div class="label">Query-Aufbau</div>
+          <div class="value">Git Repo + Branch + letzte 5 Commits</div>
+        </div>
+        <div class="detail-item">
+          <div class="label">Fallback</div>
+          <div class="value">Verzeichnisname wenn kein Git</div>
+        </div>
+        <div class="detail-item">
+          <div class="label">Performance</div>
+          <div class="value">&lt;100ms (FTS5-only, kein Model)</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ============ Brain Regions ============ -->
+  <section class="section">
+    <div class="section-label">Organisation</div>
+    <h2>Die 12 Hirnregionen</h2>
+    <p class="subtitle">Jede Note wird automatisch einer Region zugeordnet &mdash; wie Neuronen in echten Gehirnarealen.</p>
+
+    <div class="regions-grid">
+      <div class="region-chip">
+        <div class="region-dot" style="background: #3498DB;"></div>
+        <div>
+          <div class="region-name">Pr&auml;frontaler Cortex</div>
+          <div class="region-desc">Architektur, Entscheidungen, Planung</div>
+        </div>
+      </div>
+      <div class="region-chip">
+        <div class="region-dot" style="background: #E74C3C;"></div>
+        <div>
+          <div class="region-name">Motorischer Cortex</div>
+          <div class="region-desc">API Writes, Aktionen, Ausf&uuml;hrung</div>
+        </div>
+      </div>
+      <div class="region-chip">
+        <div class="region-dot" style="background: #2ECC71;"></div>
+        <div>
+          <div class="region-name">Sensorischer Cortex</div>
+          <div class="region-desc">Datenaufnahme, Referenzen, Input</div>
+        </div>
+      </div>
+      <div class="region-chip">
+        <div class="region-dot" style="background: #F39C12;"></div>
+        <div>
+          <div class="region-name">Hippocampus</div>
+          <div class="region-desc">Ged&auml;chtnis, Sessions, Notizen</div>
+        </div>
+      </div>
+      <div class="region-chip">
+        <div class="region-dot" style="background: #9B59B6;"></div>
+        <div>
+          <div class="region-name">Kleinhirn</div>
+          <div class="region-desc">Pr&auml;zisions-Algorithmen</div>
+        </div>
+      </div>
+      <div class="region-chip">
+        <div class="region-dot" style="background: #1ABC9C;"></div>
+        <div>
+          <div class="region-name">Nucleus Accumbens</div>
+          <div class="region-desc">Subscriptions, Pricing, Rewards</div>
+        </div>
+      </div>
+      <div class="region-chip">
+        <div class="region-dot" style="background: #E67E22;"></div>
+        <div>
+          <div class="region-name">Broca-Areal</div>
+          <div class="region-desc">KI, Prompts, Agenten, Sprache</div>
+        </div>
+      </div>
+      <div class="region-chip">
+        <div class="region-dot" style="background: #8E44AD;"></div>
+        <div>
+          <div class="region-name">Visueller Cortex</div>
+          <div class="region-desc">UI, Themes, Design</div>
+        </div>
+      </div>
+      <div class="region-chip">
+        <div class="region-dot" style="background: #16A085;"></div>
+        <div>
+          <div class="region-name">Thalamus</div>
+          <div class="region-desc">Index, MOC, Daten-Relay</div>
+        </div>
+      </div>
+      <div class="region-chip">
+        <div class="region-dot" style="background: #95A5A6;"></div>
+        <div>
+          <div class="region-name">Stammhirn</div>
+          <div class="region-desc">Config, Infrastruktur</div>
+        </div>
+      </div>
+      <div class="region-chip">
+        <div class="region-dot" style="background: #D35400;"></div>
+        <div>
+          <div class="region-name">Basalganglien</div>
+          <div class="region-desc">Pipelines, ETL, Background</div>
+        </div>
+      </div>
+      <div class="region-chip">
+        <div class="region-dot" style="background: #C0392B;"></div>
+        <div>
+          <div class="region-name">Amygdala</div>
+          <div class="region-desc">Auth, Team, soziale Interaktion</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ============ Tech Stack ============ -->
+  <section class="section">
+    <div class="section-label">Unter der Haube</div>
+    <h2>Tech Stack</h2>
+    <p class="subtitle">Bew&auml;hrte, performante Technologien &mdash; kein Over-Engineering.</p>
+
+    <div class="simple-grid">
+      <div class="simple-card">
+        <h3>Python + FastMCP</h3>
+        <p>MCP Server mit Lifespan-Pattern, Background Model Loading, Thread-safe DB-Zugriff. Registriert 15+ Tools f&uuml;r Claude.</p>
+      </div>
+      <div class="simple-card">
+        <h3>SQLite WAL + FTS5</h3>
+        <p>Write-Ahead Logging f&uuml;r concurrent access. FTS5 mit Unicode61 Tokenizer f&uuml;r multilinguales Keyword-Matching.</p>
+      </div>
+      <div class="simple-card">
+        <h3>FAISS IndexIDMap2</h3>
+        <p>Facebook AI Similarity Search. Inner-Product Similarity (= Cosine nach L2-Normalisierung). Explizite IDs f&uuml;r sauberes Add/Remove.</p>
+      </div>
+      <div class="simple-card">
+        <h3>Sentence Transformers</h3>
+        <p><code>paraphrase-multilingual-MiniLM-L12-v2</code> &mdash; 384 Dimensionen, multilingual, ~11s Background-Loading.</p>
+      </div>
+      <div class="simple-card">
+        <h3>Watchdog</h3>
+        <p>Live File-Watching mit Debounce. &Auml;nderungen im Vault werden sofort erkannt und re-indexiert.</p>
+      </div>
+      <div class="simple-card">
+        <h3>Security</h3>
+        <p>Path Traversal Guards, Atomic Writes (tempfile + os.replace), FTS5 Query Escaping, Thread-safe Locks, Parameterized SQL.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <footer class="footer">
+    Neural Brain v2 &mdash; Built by Lucas &amp; Claude &mdash; 2026
+  </footer>
+
+</div>
+
+</body>
+</html>

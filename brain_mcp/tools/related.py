@@ -1,8 +1,6 @@
 # brain_mcp/tools/related.py
 from __future__ import annotations
 
-import json
-
 from brain_mcp.indexer.embedder import EmbeddingBackend
 from brain_mcp.indexer.vector_store import VectorStore
 from brain_mcp.storage.database import BrainDB

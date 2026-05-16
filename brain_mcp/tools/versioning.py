@@ -3,7 +3,6 @@ from __future__ import annotations
 import difflib
 from pathlib import Path
 
-from brain_mcp.indexer.scanner import compute_content_hash
 from brain_mcp.storage.database import BrainDB
 
 

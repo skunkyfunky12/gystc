@@ -1,6 +1,5 @@
 from __future__ import annotations
 import asyncio
-import json
 import sys
 import threading
 from collections.abc import AsyncIterator
@@ -95,16 +94,19 @@ def _kill_zombie_siblings() -> None:
     except ImportError:
         return
     my_pid = os.getpid()
-    for proc in psutil.process_iter(["pid", "cmdline"]):
-        try:
-            if proc.pid == my_pid:
-                continue
-            cmdline = proc.info.get("cmdline") or []
-            if any("brain_mcp" in arg for arg in cmdline) and any("serve" in arg for arg in cmdline):
-                print(f"Killing zombie GYSTC process: PID {proc.pid}", file=sys.stderr)
-                proc.kill()
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+    try:
+        for proc in psutil.process_iter(["pid", "cmdline"]):
+            try:
+                if proc.pid == my_pid:
+                    continue
+                cmdline = proc.info.get("cmdline") or []
+                if any("brain_mcp" in arg for arg in cmdline) and any("serve" in arg for arg in cmdline):
+                    print(f"Killing zombie GYSTC process: PID {proc.pid}", file=sys.stderr)
+                    proc.kill()
+            except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+                pass
+    except (OSError, psutil.Error) as exc:
+        print(f"WARNING: Zombie cleanup skipped: {exc}", file=sys.stderr)
 
 
 def _periodic_faiss_save(state: BrainState) -> None:
@@ -140,8 +142,8 @@ def _background_startup(state: BrainState, model_thread: threading.Thread) -> No
             state.watcher = watcher
         try:
             state.vectors.save(state.config.index_path)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"WARNING: Initial FAISS save failed: {exc}", file=sys.stderr)
         saver = threading.Thread(target=_periodic_faiss_save, args=(state,), daemon=True)
         saver.start()
         print("Background startup complete.", file=sys.stderr)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from brain_mcp.indexer.scanner import REGION_TAG_TO_IDX, compute_content_hash
 from brain_mcp.indexer.vector_store import VectorStore
 from brain_mcp.storage.database import BrainDB
 from brain_mcp.tools.classifier import classify_region
-from brain_mcp.tools.recent import REGION_NAMES, REGION_NAME_TO_IDX, resolve_region_idx
+from brain_mcp.tools.recent import REGION_NAMES, resolve_region_idx
 
 if TYPE_CHECKING:
     from brain_mcp.indexer.watcher import BrainWatcher
@@ -131,7 +132,7 @@ def handle_brain_store(
     )
 
     indexed = False
-    if getattr(embedder, 'is_ready', True):
+    if embedder.is_ready:
         try:
             vec = embedder.embed([content])
             if old_faiss_idx is not None:
@@ -139,8 +140,8 @@ def handle_brain_store(
             faiss_ids = vectors.add(vec)
             db.set_faiss_idx(note_id, faiss_ids[0])
             indexed = True
-        except Exception:
-            pass
+        except RuntimeError as exc:
+            print(f"Embedding failed for '{title}': {exc}", file=sys.stderr)
 
     result = {
         "path": rel_path,

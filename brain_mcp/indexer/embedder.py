@@ -63,10 +63,12 @@ class SentenceTransformerBackend:
                 self._ready.set()
 
     def _get_model(self):
-        """Thread-safe model accessor. Loads on first call, returns cached reference."""
+        """Thread-safe model accessor. Loads on first call, raises if load failed."""
         with self._load_lock:
             if self._model is None:
                 self._load()
+            if self._model is None:
+                raise RuntimeError("Embedding model failed to load — check stderr for details")
             return self._model
 
     def wait_ready(self, timeout: float = 60.0) -> bool:
