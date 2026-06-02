@@ -47,6 +47,19 @@ a = Analysis(
         'integrations',
         'integrations.obsidian',
         'setup_wizard',
+        # brain_mcp is imported in-process by the dashboard's HTTP API
+        # (brain/web_widget.py: /api/config, /api/stats, /api/search, ...).
+        # It must be bundled, NOT excluded.
+        'brain_mcp',
+        'brain_mcp.config',
+        'brain_mcp.storage.database',
+        'brain_mcp.storage.migrations',
+        'brain_mcp.indexer.vector_store',
+        'brain_mcp.indexer.embedder',
+        'brain_mcp.indexer.chunker',
+        'brain_mcp.indexer.scanner',
+        'brain_mcp.tools.retrieve',
+        'brain_mcp.tools.recent',
     ],
     hookspath=[],
     hooksconfig={},
@@ -58,7 +71,6 @@ a = Analysis(
         'IPython',
         'notebook',
         'pytest',
-        'brain_mcp',
         'OpenGL',
         'brain.gl_widget',
         'brain.scene',

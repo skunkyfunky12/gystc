@@ -179,14 +179,14 @@ class SetupWizard(QDialog):
         self._status.setStyleSheet("color: #22C55E;")
 
     @staticmethod
-    def _find_system_python() -> str:
+    def _find_system_python() -> str | None:
         if not IS_MAC and not getattr(sys, "frozen", False):
             return sys.executable
         for name in ("python3", "python"):
             found = shutil.which(name)
             if found and ".app/" not in found and "_internal" not in found:
                 return found
-        return "python3"
+        return None  # no real interpreter on PATH -- caller must surface this
 
     @staticmethod
     def _check_brain_mcp(python_cmd: str) -> bool:
@@ -228,6 +228,13 @@ class SetupWizard(QDialog):
     def _install_hooks(self):
         results = []
         python_cmd = self._find_system_python()
+        if not python_cmd:
+            self._status.setText(
+                "Python 3.11+ not found on your PATH. Install it from python.org "
+                "(tick 'Add Python to PATH'), then click 'Install MCP + Hooks' again."
+            )
+            self._status.setStyleSheet("color: #FF5C7C;")
+            return
 
         if not self._check_brain_mcp(python_cmd):
             self._status.setText("Installing GYSTC MCP server (this may take a minute)...")
@@ -319,12 +326,27 @@ class SetupWizard(QDialog):
 
     def _write_config(self):
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        # Merge over any existing config so we don't clobber keys owned by the
+        # MCP server (model_name, folder_to_region, auto_index, ...).
+        config = {}
+        if CONFIG_PATH.exists():
+            try:
+                loaded = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    config = loaded
+            except (json.JSONDecodeError, OSError):
+                config = {}
         vault = self._vault_input.text().strip()
-        config = {
-            "vault_path": vault if vault else "",
-            "obsidian_api_key": self._key_input.text().strip(),
-            "graph_path": "graphify-out/graph.json",
-        }
+        if vault:
+            config["vault_path"] = vault
+        else:
+            config.setdefault("vault_path", "")
+        key = self._key_input.text().strip()
+        if key:
+            config["obsidian_api_key"] = key
+        else:
+            config.setdefault("obsidian_api_key", "")
+        config.setdefault("graph_path", "graphify-out/graph.json")
         CONFIG_PATH.write_text(
             json.dumps(config, indent=4, ensure_ascii=False),
             encoding="utf-8",

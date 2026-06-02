@@ -34,21 +34,27 @@ def test_save_load_roundtrip(tmp_config_dir):
     assert loaded.log_level == "DEBUG"
 
 
-def test_save_strips_legacy_keys(tmp_config_dir):
+def test_save_preserves_foreign_keys(tmp_config_dir):
+    """save_config must NOT clobber keys owned by the dashboard (H1 fix).
+
+    Previously the MCP rewrote config.json from scratch and dropped
+    obsidian_api_key / graph_path, silently breaking click-to-open-in-Obsidian.
+    """
     tmp_config_dir.mkdir(parents=True, exist_ok=True)
-    legacy = {
+    foreign = {
         "vault_path": "/fake",
-        "graph_path": "should/be/stripped",
+        "graph_path": "graphify-out/graph.json",
         "obsidian_api_key": "secret",
         "model_name": DEFAULT_MODEL,
     }
-    (tmp_config_dir / "config.json").write_text(json.dumps(legacy))
+    (tmp_config_dir / "config.json").write_text(json.dumps(foreign))
     config = load_config(tmp_config_dir)
     save_config(config)
     data = json.loads((tmp_config_dir / "config.json").read_text())
-    assert "graph_path" not in data
-    assert "obsidian_api_key" not in data
+    assert data["graph_path"] == "graphify-out/graph.json"
+    assert data["obsidian_api_key"] == "secret"
     assert "vault_path" in data
+    assert "model_name" in data
 
 
 def test_validate_bad_vault_path():

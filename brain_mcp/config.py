@@ -65,7 +65,17 @@ def save_config(config: BrainConfig, path: Path | None = None) -> Path:
         print(f"WARNING: Config has validation issues: {'; '.join(errors)}", file=sys.stderr)
     config.data_dir.mkdir(parents=True, exist_ok=True)
     config_file = path or config.config_path
-    data = {
+    # Merge over any existing file so we don't clobber keys owned by other
+    # components (the dashboard stores obsidian_api_key / graph_path here too).
+    data: dict = {}
+    if config_file.exists():
+        try:
+            loaded = json.loads(config_file.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                data = loaded
+        except (json.JSONDecodeError, OSError):
+            data = {}
+    data.update({
         "vault_path": str(config.vault_path) if config.vault_path else None,
         "model_name": config.model_name,
         "embedding_backend": config.embedding_backend,
@@ -75,7 +85,7 @@ def save_config(config: BrainConfig, path: Path | None = None) -> Path:
         "log_level": config.log_level,
         "auto_context": config.auto_context,
         "reranker": config.reranker,
-    }
+    })
     fd, tmp = tempfile.mkstemp(dir=config.data_dir, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
