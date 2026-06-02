@@ -59,10 +59,16 @@ def handle_brain_classify(
         "applied": False,
     }
 
-    if apply and note:
-        db.update_note_region(note["id"], region_idx)
-        _update_file_tag(vault_path, note["path"], region_idx)
-        result["applied"] = True
+    if apply:
+        if note:
+            db.update_note_region(note["id"], region_idx)
+            _update_file_tag(vault_path, note["path"], region_idx)
+            result["applied"] = True
+        else:
+            result["error"] = (
+                "Cannot apply: note not found in DB. Pass a stored title or path "
+                "(the classification was computed but not saved)."
+            )
 
     return result
 

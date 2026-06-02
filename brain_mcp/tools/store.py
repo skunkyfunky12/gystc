@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from brain_mcp.indexer.embedder import EmbeddingBackend
+from brain_mcp.indexer.pipeline import reindex_note_chunks
 from brain_mcp.indexer.scanner import REGION_TAG_TO_IDX, compute_content_hash
 from brain_mcp.indexer.vector_store import VectorStore
 from brain_mcp.storage.database import BrainDB
@@ -134,8 +135,11 @@ def handle_brain_store(
                 vectors.remove([old_faiss_idx])
             faiss_ids = vectors.add(vec)
             db.set_faiss_idx(note_id, faiss_ids[0])
+            # Refresh chunk vectors too — otherwise search returns stale snippets
+            # for this note after every edit.
+            reindex_note_chunks(db, vectors, embedder, note_id, safe_title, content)
             indexed = True
-        except RuntimeError as exc:
+        except Exception as exc:
             print(f"Embedding failed for '{title}': {exc}", file=sys.stderr)
 
     result = {

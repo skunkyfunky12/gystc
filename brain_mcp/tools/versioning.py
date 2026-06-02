@@ -1,13 +1,28 @@
 from __future__ import annotations
 
 import difflib
+import json
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from brain_mcp.indexer.embedder import EmbeddingBackend
+from brain_mcp.indexer.pipeline import reindex_note_chunks
+from brain_mcp.indexer.vector_store import VectorStore
 from brain_mcp.storage.database import BrainDB
 
 if TYPE_CHECKING:
     from brain_mcp.indexer.watcher import BrainWatcher
+
+
+def _safe_parse_tags(tags_str) -> list[str]:
+    if not tags_str:
+        return []
+    try:
+        parsed = json.loads(tags_str)
+        return parsed if isinstance(parsed, list) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
 
 
 def handle_brain_history(db: BrainDB, path: str) -> list[dict] | dict:
@@ -60,6 +75,8 @@ def handle_brain_rollback(
     path: str,
     version_id: int,
     watcher: BrainWatcher | None = None,
+    vectors: VectorStore | None = None,
+    embedder: EmbeddingBackend | None = None,
 ) -> dict:
     note = db.get_note_by_path(path)
     if note is None:
@@ -83,20 +100,40 @@ def handle_brain_rollback(
     file_path.write_text(version["content"], encoding="utf-8")
 
     restored_hash = version["content_hash"]
-    db.upsert_note(
+    restored_tags = _safe_parse_tags(version["tags"])
+    old_faiss_idx = note["faiss_idx"] if note["faiss_idx"] is not None else None
+    note_id = db.upsert_note(
         path=path,
         title=version["title"],
         content=version["content"],
         content_hash=restored_hash,
         region_idx=version["region_idx"],
-        tags=[], word_count=version["word_count"],
+        tags=restored_tags, word_count=version["word_count"],
         created_at=note["created_at"],
         modified_at=note["modified_at"],
     )
+
+    # The watcher is suppressed for this write (pending-write), so it won't
+    # re-index for us. Drop the stale vector and re-embed the restored content,
+    # or search would keep returning the pre-rollback version.
+    reindexed = False
+    if vectors is not None and old_faiss_idx is not None:
+        vectors.remove([old_faiss_idx])
+    if vectors is not None and embedder is not None and embedder.is_ready:
+        try:
+            fid = vectors.add(embedder.embed([version["content"]]))[0]
+            db.set_faiss_idx(note_id, fid)
+            reindex_note_chunks(db, vectors, embedder, note_id,
+                                version["title"], version["content"])
+            reindexed = True
+        except Exception as exc:
+            print(f"Rollback re-embed failed for {path}: {exc}", file=sys.stderr)
 
     return {
         "rolled_back": True,
         "path": path,
         "version_id": version_id,
         "restored_hash": restored_hash,
+        "tags": restored_tags,
+        "reindexed": reindexed,
     }

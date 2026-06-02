@@ -124,3 +124,31 @@ def index_vault(
             print(f"Chunk embedding error: {exc}", file=sys.stderr)
 
     return len(to_embed)
+
+
+def reindex_note_chunks(
+    db: BrainDB,
+    vectors: VectorStore,
+    embedder: EmbeddingBackend,
+    note_id: int,
+    title: str,
+    content: str,
+) -> None:
+    """Refresh ONE note's chunk vectors after an interactive edit (store/rollback).
+
+    Without this, editing a note through brain_store/rollback left its old chunk
+    vectors in FAISS, so search kept returning stale snippets for that note.
+    """
+    chunks = split_into_chunks(content, title)
+    if not chunks:
+        old = db.delete_chunks_for_note(note_id)
+        if old:
+            vectors.remove(old)
+        return
+    old = db.replace_chunks(note_id, chunks)
+    if old:
+        vectors.remove(old)
+    vecs = embedder.embed([c["content"] for c in chunks])
+    faiss_ids = vectors.add(vecs)
+    for chunk, fid in zip(chunks, faiss_ids):
+        db.set_chunk_faiss_idx(note_id, chunk["chunk_idx"], fid)

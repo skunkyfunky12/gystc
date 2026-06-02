@@ -32,6 +32,34 @@ def test_store_creates_file(tmp_path, mock_embedder):
     db.close()
 
 
+def test_store_rechunks_on_update(tmp_path, mock_embedder):
+    """Editing a note via brain_store must replace its chunk vectors, not leave
+    stale ones (search would otherwise return outdated snippets)."""
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    db = BrainDB(tmp_path / "test.db")
+    vectors = VectorStore(dimension=384)
+
+    body1 = "## Alpha\n" + ("alpha " * 300) + "\n\n## Beta\n" + ("beta " * 300)
+    r1 = handle_brain_store(db, vectors, mock_embedder, vault,
+                            title="Doc", content=body1, region="Hippocampus", watcher=None)
+    note = db.get_note_by_path(r1["path"])
+    chunks1 = db.get_chunks_for_note(note["id"])
+    assert len(chunks1) >= 2
+    assert {c["heading"] for c in chunks1} >= {"Alpha", "Beta"}
+    assert all(c["faiss_idx"] is not None for c in chunks1)
+
+    body2 = "## Gamma\n" + ("gamma " * 300) + "\n\n## Delta\n" + ("delta " * 300)
+    handle_brain_store(db, vectors, mock_embedder, vault,
+                       title="Doc", content=body2, region="Hippocampus", watcher=None)
+    chunks2 = db.get_chunks_for_note(note["id"])
+    headings2 = {c["heading"] for c in chunks2}
+    assert "Gamma" in headings2
+    assert "Alpha" not in headings2  # stale chunks were replaced
+    assert all(c["faiss_idx"] is not None for c in chunks2)
+    db.close()
+
+
 def test_store_creates_subfolder(tmp_path, mock_embedder):
     vault = tmp_path / "vault"
     vault.mkdir()

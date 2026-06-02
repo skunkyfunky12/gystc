@@ -157,3 +157,55 @@ def test_brain_rollback(tmp_path):
     versions_after = db.get_versions(nid)
     assert len(versions_after) == 2
     db.close()
+
+
+def test_rollback_restores_tags(tmp_path):
+    """Rollback must restore the version's tags, not wipe them to []."""
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    db = BrainDB(tmp_path / "test.db")
+    (vault / "a.md").write_text("v1", encoding="utf-8")
+    nid = db.upsert_note(path="a.md", title="a", content="v1", content_hash="h1",
+                         region_idx=0, tags=["#keep", "#me"], word_count=1,
+                         created_at="2026-01-01", modified_at="2026-01-01")
+    (vault / "a.md").write_text("v2", encoding="utf-8")
+    db.upsert_note(path="a.md", title="a", content="v2", content_hash="h2",
+                   region_idx=0, tags=["#different"], word_count=1,
+                   created_at="2026-01-01", modified_at="2026-01-02")
+    vid = db.get_versions(nid)[0]["id"]
+    result = handle_brain_rollback(db, vault, path="a.md", version_id=vid)
+    assert result["tags"] == ["#keep", "#me"]
+    assert json.loads(db.get_note_by_path("a.md")["tags"]) == ["#keep", "#me"]
+    db.close()
+
+
+def test_rollback_drops_stale_vector_and_reembeds(tmp_path):
+    """Rollback must drop the old FAISS vector and re-embed restored content."""
+    from brain_mcp.indexer.vector_store import VectorStore
+    from tests.conftest import MockEmbedder
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    db = BrainDB(tmp_path / "test.db")
+    emb = MockEmbedder()
+    vectors = VectorStore(dimension=384)
+    (vault / "a.md").write_text("alpha one", encoding="utf-8")
+    nid = db.upsert_note(path="a.md", title="a", content="alpha one", content_hash="h1",
+                         region_idx=0, tags=[], word_count=2,
+                         created_at="2026-01-01", modified_at="2026-01-01")
+    db.set_faiss_idx(nid, vectors.add(emb.embed(["alpha one"]))[0])
+    (vault / "a.md").write_text("beta two", encoding="utf-8")
+    db.upsert_note(path="a.md", title="a", content="beta two", content_hash="h2",
+                   region_idx=0, tags=[], word_count=2,
+                   created_at="2026-01-01", modified_at="2026-01-02")
+    cur = db.get_note_by_path("a.md")
+    vectors.remove([cur["faiss_idx"]])
+    db.set_faiss_idx(nid, vectors.add(emb.embed(["beta two"]))[0])
+    vid = db.get_versions(nid)[0]["id"]
+    result = handle_brain_rollback(db, vault, path="a.md", version_id=vid,
+                                   vectors=vectors, embedder=emb)
+    assert result["reindexed"] is True
+    restored = db.get_note_by_path("a.md")
+    hits = db.get_notes_by_faiss_indices([restored["faiss_idx"]])
+    assert len(hits) == 1
+    assert hits[0]["content"] == "alpha one"
+    db.close()

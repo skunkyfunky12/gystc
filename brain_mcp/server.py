@@ -539,6 +539,7 @@ async def brain_versions(
             return handle_brain_rollback(
                 state.db, state.config.vault_path, path=path,
                 version_id=version_id, watcher=state.watcher,
+                vectors=state.vectors, embedder=state.embedder,
             )
         return {"error": f"Unknown action: {action}. Use 'history', 'diff', or 'rollback'."}
 
