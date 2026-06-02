@@ -3,6 +3,7 @@ import asyncio
 import sys
 import threading
 from collections.abc import AsyncIterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +38,7 @@ class BrainState:
     embedder: SentenceTransformerBackend
     watcher: BrainWatcher | None = None
     reranker: CrossEncoderReRanker | None = None
+    embed_pool: ThreadPoolExecutor | None = None
 
 
 def _index_vault(state: BrainState) -> None:
@@ -170,7 +172,9 @@ async def brain_lifespan(server: FastMCP) -> AsyncIterator[BrainState]:
     if config.reranker == "cross-encoder":
         reranker = CrossEncoderReRanker()
         reranker.start_loading()
-    state = BrainState(config=config, db=db, vectors=vectors, embedder=embedder, reranker=reranker)
+    embed_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="gystc-embed")
+    state = BrainState(config=config, db=db, vectors=vectors, embedder=embedder,
+                       reranker=reranker, embed_pool=embed_pool)
     startup_ms = int((time.perf_counter() - t0) * 1000)
     print(f"GYSTC MCP started in {startup_ms}ms. Vault: {config.vault_path}", file=sys.stderr)
     print(f"DB: {config.db_path} | Index: {vectors.size} vectors", file=sys.stderr)
@@ -191,6 +195,10 @@ async def brain_lifespan(server: FastMCP) -> AsyncIterator[BrainState]:
             db.close()
         except Exception as exc:
             print(f"ERROR: Failed to close database: {exc}", file=sys.stderr)
+        try:
+            embed_pool.shutdown(wait=False, cancel_futures=True)
+        except Exception as exc:
+            print(f"ERROR: Failed to shut down embed pool: {exc}", file=sys.stderr)
         print("GYSTC MCP stopped.", file=sys.stderr)
 
 BRAIN_INSTRUCTIONS = """
@@ -221,6 +229,33 @@ KEEP IT FAST:
 - brain_retrieve with only file_paths does graph traversal without embeddings.
 - Don't chain multiple search calls. One brain_retrieve is usually enough.
 """.strip()
+
+def _retrieve_logic(state: "BrainState", *, query, region, limit, threshold, file_paths, depth):
+    """Non-blocking retrieve. If the embedding model isn't ready yet, fall back to
+    FTS instantly instead of blocking a worker thread on wait_ready — that block
+    was the old 6-20s first-search-of-session freeze."""
+    fts_only = bool(query) and not state.embedder.is_ready
+    result = handle_brain_retrieve(
+        state.db, state.vectors, state.embedder,
+        query=query, region=region, limit=limit, threshold=threshold,
+        reranker=state.reranker, file_paths=file_paths, depth=depth,
+        fts_only=fts_only,
+    )
+    if fts_only and query and isinstance(result, list):
+        for entry in result:
+            if isinstance(entry, dict):
+                entry["fts_only"] = True
+    return result
+
+
+def _related_logic(state: "BrainState", *, title, path, limit):
+    """Non-blocking related. Falls back to backlinks-only when the model isn't
+    ready yet, so it never blocks on wait_ready."""
+    return handle_brain_related(
+        state.db, state.vectors, state.embedder,
+        title=title, path=path, limit=limit, semantic=state.embedder.is_ready,
+    )
+
 
 mcp = FastMCP("GYSTC", lifespan=brain_lifespan, instructions=BRAIN_INSTRUCTIONS)
 
@@ -338,31 +373,15 @@ async def brain_retrieve(
         depth: Backlink graph hops 1-3 (default 1)
     """
     state: BrainState = mcp.get_context().request_context.lifespan_context
-
-    def _do():
-        needs_model = bool(query) and not (file_paths and not query)
-        fts_only = False
-
-        if needs_model and not state.embedder.is_ready:
-            state.embedder.wait_ready(timeout=WAIT_READY_TIMEOUT)
-            if not state.embedder.is_ready:
-                fts_only = True
-
-        result = handle_brain_retrieve(
-            state.db, state.vectors, state.embedder,
-            query=query, region=region, limit=limit, threshold=threshold,
-            reranker=state.reranker, file_paths=file_paths, depth=depth,
-            fts_only=fts_only,
-        )
-        if fts_only and query and isinstance(result, list):
-            for entry in result:
-                if isinstance(entry, dict):
-                    entry["fts_only"] = True
-        return result
-
     try:
         return await asyncio.wait_for(
-            asyncio.get_running_loop().run_in_executor(None, _do),
+            asyncio.get_running_loop().run_in_executor(
+                state.embed_pool,
+                lambda: _retrieve_logic(
+                    state, query=query, region=region, limit=limit,
+                    threshold=threshold, file_paths=file_paths, depth=depth,
+                ),
+            ),
             timeout=TOOL_TIMEOUT,
         )
     except asyncio.TimeoutError:
@@ -410,16 +429,12 @@ async def brain_related(title: str | None = None, path: str | None = None, limit
     """
     state: BrainState = mcp.get_context().request_context.lifespan_context
 
-    def _do():
-        if not state.embedder.wait_ready(timeout=WAIT_READY_TIMEOUT):
-            return {"error": f"Embedding model timed out ({WAIT_READY_TIMEOUT}s). Use brain_recent instead."}
-        if not state.embedder.is_ready:
-            return {"error": "Embedding model failed to load."}
-        return handle_brain_related(state.db, state.vectors, state.embedder, title=title, path=path, limit=limit)
-
     try:
         return await asyncio.wait_for(
-            asyncio.get_running_loop().run_in_executor(None, _do),
+            asyncio.get_running_loop().run_in_executor(
+                state.embed_pool,
+                lambda: _related_logic(state, title=title, path=path, limit=limit),
+            ),
             timeout=TOOL_TIMEOUT,
         )
     except asyncio.TimeoutError:

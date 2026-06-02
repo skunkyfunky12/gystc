@@ -14,6 +14,7 @@ def handle_brain_related(
     title: str | None = None,
     path: str | None = None,
     limit: int = 10,
+    semantic: bool = True,
 ) -> list[dict] | dict:
     limit = max(1, min(limit, 100))
 
@@ -28,7 +29,7 @@ def handle_brain_related(
         return {"error": f"Note not found: {title or path}"}
 
     semantic_scores: dict[int, float] = {}
-    if source["faiss_idx"] is not None and vectors.size > 1:
+    if semantic and source["faiss_idx"] is not None and vectors.size > 1:
         scores, ids = vectors.search(
             embedder.embed([source["content"] or source["title"]]),
             k=min(limit * 2, vectors.size),

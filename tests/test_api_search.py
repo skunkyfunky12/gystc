@@ -21,12 +21,9 @@ for _mod in [
     if _mod not in sys.modules:
         sys.modules[_mod] = MagicMock()
 
-# Stub data.regions if not importable without PyQt6 app
-if "data.regions" not in sys.modules:
-    _fake_regions = MagicMock()
-    _fake_regions.COMMUNITY_TO_REGION = {}
-    _fake_regions.REGIONS = [{"name": f"Region {i}"} for i in range(12)]
-    sys.modules["data.regions"] = _fake_regions
+# data.regions is pure data (no PyQt6 dependency), so import the REAL module.
+# Do NOT stub it into sys.modules — that previously leaked a fake (no colors,
+# empty community map) into test_regions.py when it ran after this module.
 
 
 def _seed_db(db, vectors, embedder):

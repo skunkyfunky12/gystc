@@ -31,3 +31,6 @@ dashboard = [
 
 [tool.setuptools.packages.find]
 include = ["brain_mcp*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
