@@ -287,7 +287,7 @@ class SetupWizard(QDialog):
             if not already:
                 quoted_py = f'"{python_cmd}"' if " " in python_cmd else python_cmd
                 session_hooks.append({
-                    "command": f"{quoted_py} -m brain_mcp.hooks.session_start",
+                    "command": f"{quoted_py} -m brain_mcp.hooks.session_start_context",
                     "description": "GYSTC: load vault context on session start",
                 })
                 settings_path.write_text(

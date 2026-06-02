@@ -14,6 +14,7 @@ dependencies = [
     "faiss-cpu>=1.7.4",
     "watchdog>=3.0,<5.0",
     "numpy>=1.24",
+    "psutil>=5.9",
 ]
 
 [project.optional-dependencies]
