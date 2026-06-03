@@ -1,0 +1,13 @@
+#!/bin/sh
+# Final gate before deploy: scan ALL tracked files before pushing to GitHub.
+root="$(git rev-parse --show-toplevel)"
+cd "$root" || exit 1
+PY="$(command -v python || command -v python3)"
+if [ -z "$PY" ]; then
+  echo "pre-push: python not found, skipping secret scan (install Python to enable)." >&2
+  exit 0
+fi
+"$PY" "$root/scripts/check_secrets.py" $(git ls-files) || {
+  echo "pre-push: secret scan failed — push aborted." >&2
+  exit 1
+}

@@ -1,0 +1,13 @@
+#!/bin/sh
+# Secret guard: block API keys / tokens / private keys from entering a commit.
+# Activated via:  git config core.hooksPath .githooks
+root="$(git rev-parse --show-toplevel)"
+PY="$(command -v python || command -v python3)"
+if [ -z "$PY" ]; then
+  echo "pre-commit: python not found, skipping secret scan (install Python to enable)." >&2
+  exit 0
+fi
+"$PY" "$root/scripts/check_secrets.py" || {
+  echo "pre-commit: secret scan failed — commit aborted." >&2
+  exit 1
+}

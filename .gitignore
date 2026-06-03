@@ -9,3 +9,10 @@ launch_log.txt
 *.db
 *.faiss
 .gystc/
+# secrets — never commit
+.env
+.env.*
+*.key
+*.pem
+secrets.json
+config.local.json
