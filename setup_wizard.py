@@ -277,35 +277,52 @@ class SetupWizard(QDialog):
             except Exception as e:
                 results.append(f"MCP {mcp_path.name}: {e}")
 
-        hooks_dir = CLAUDE_DIR / "hooks"
-        hooks_dir.mkdir(parents=True, exist_ok=True)
         settings_path = CLAUDE_DIR / "settings.json"
         try:
             settings = {}
             if settings_path.exists():
                 settings = json.loads(settings_path.read_text(encoding="utf-8"))
             hooks = settings.setdefault("hooks", {})
-            session_hooks = hooks.setdefault("SessionStart", [])
+            quoted_py = f'"{python_cmd}"' if " " in python_cmd else python_cmd
 
-            already = any(
-                "brain_mcp" in h.get("command", "")
-                for h in session_hooks
-            )
-            if not already:
-                quoted_py = f'"{python_cmd}"' if " " in python_cmd else python_cmd
-                session_hooks.append({
-                    "command": f"{quoted_py} -m brain_mcp.hooks.session_start_context",
-                    "description": "GYSTC: load vault context on session start",
+            def _ensure_hook(event: str, module: str, matcher: str = "*") -> bool:
+                """Register a `python -m <module>` command hook in Claude Code's
+                nested schema (matcher + hooks[]), idempotently. Returns True if added.
+
+                The nested schema is REQUIRED — a flat {command, description} entry is
+                silently ignored by Claude Code and never fires."""
+                entries = hooks.setdefault(event, [])
+                for entry in entries:
+                    if isinstance(entry, dict):
+                        for hh in entry.get("hooks", []):
+                            if module in hh.get("command", ""):
+                                return False
+                entries.append({
+                    "matcher": matcher,
+                    "hooks": [{
+                        "type": "command",
+                        "command": f"{quoted_py} -m {module}",
+                        "timeout": 10,
+                    }],
                 })
+                return True
+
+            added = []
+            if _ensure_hook("SessionStart", "brain_mcp.hooks.session_start_context"):
+                added.append("SessionStart")
+            if _ensure_hook("PostToolUse", "brain_mcp.hooks.activity_feed"):
+                added.append("PostToolUse activity")
+
+            if added:
                 settings_path.write_text(
                     json.dumps(settings, indent=2, ensure_ascii=False),
                     encoding="utf-8",
                 )
-                results.append("Hook: installed")
+                results.append("Hooks: " + ", ".join(added))
             else:
-                results.append("Hook: already present")
+                results.append("Hooks: already present")
         except Exception as e:
-            results.append(f"Hook: {e}")
+            results.append(f"Hooks: {e}")
 
         self._status.setText(" | ".join(results))
         self._status.setStyleSheet("color: #5EE9F0;")
