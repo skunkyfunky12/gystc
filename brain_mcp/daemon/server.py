@@ -22,7 +22,7 @@ def free_port() -> int:
     s.close()
     return port
 
-def run_daemon(idle_timeout: float = 1800.0) -> None:
+def run_daemon() -> None:
     """Run the GYSTC FastMCP server over streamable-http on 127.0.0.1."""
     import os, uvicorn
     os.environ["GYSTC_NO_PARENT_WATCHDOG"] = "1"  # daemon must NOT die with its launcher
@@ -40,7 +40,10 @@ def run_daemon(idle_timeout: float = 1800.0) -> None:
         print("A GYSTC daemon is already running; exiting.", file=sys.stderr)
         return
 
-    port = free_port()
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))                       # do NOT setsockopt SO_REUSEADDR on Windows
+    port = sock.getsockname()[1]
     token = secrets.token_urlsafe(32)
     write_registry(data_dir / "daemon.json", DaemonInfo(port=port, token=token, pid=os.getpid()))
 
@@ -62,6 +65,7 @@ def run_daemon(idle_timeout: float = 1800.0) -> None:
         return JR({"ok": True, "pid": os.getpid()})
     app.router.routes.append(Route("/health", health, methods=["GET"]))
 
-    globals()["_DAEMON_LOCK"] = lock  # keep the lock alive for the process lifetime
+    globals()["_DAEMON_LOCK"] = lock
+    globals()["_DAEMON_SOCK"] = sock                  # keep the bound socket alive
     print(f"GYSTC daemon on http://127.0.0.1:{port}/mcp (pid {os.getpid()})", file=sys.stderr)
-    uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")).run()
+    uvicorn.Server(uvicorn.Config(app, log_level="warning")).run(sockets=[sock])

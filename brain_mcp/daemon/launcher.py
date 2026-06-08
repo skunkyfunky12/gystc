@@ -10,17 +10,20 @@ def daemon_health_url(info: DaemonInfo) -> str:
     return f"http://127.0.0.1:{info.port}/health"
 
 
-def is_alive(info: DaemonInfo, timeout: float = 1.0) -> bool:
+def is_alive(info, timeout: float = 1.0) -> bool:
     try:
-        # The daemon guards every route (including /health) with a Bearer token,
-        # so a discovery probe must authenticate with the token from the registry
-        # — otherwise the daemon answers 401 and looks dead.
-        r = httpx.get(
-            daemon_health_url(info),
-            timeout=timeout,
-            headers={"Authorization": f"Bearer {info.token}"},
-        )
-        return r.status_code == 200 and r.json().get("ok") is True
+        import psutil
+        if not psutil.pid_exists(info.pid):
+            return False  # don't probe (and leak the token to) a reused port
+    except Exception:
+        pass  # psutil unavailable -> best effort
+    try:
+        r = httpx.get(daemon_health_url(info),
+                      headers={"Authorization": f"Bearer {info.token}"}, timeout=timeout)
+        if r.status_code != 200:
+            return False
+        body = r.json()
+        return body.get("ok") is True and body.get("pid") == info.pid
     except Exception:
         return False
 
@@ -68,6 +71,7 @@ def ensure_daemon(data_dir: Path):
             if info is not None and is_alive(info):
                 return info
             time.sleep(0.15)
-        return read_registry(reg)
+        info = read_registry(reg)
+        return info if (info is not None and is_alive(info)) else None
     finally:
         start_lock.release()

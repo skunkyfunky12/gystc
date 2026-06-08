@@ -23,21 +23,41 @@ def forward_one(url: str, token: str, msg: dict, client: httpx.Client | None = N
             client.close()
 
 
+def _forward_with_recovery(client, state, data_dir, msg):
+    """Forward msg; on failure, respawn the daemon once and retry. Returns a
+    JSON-RPC dict to write to stdout, or None for notifications / no-reply."""
+    try:
+        return forward_one(state["url"], state["info"].token, msg, client=client)
+    except Exception as exc:
+        print(f"proxy: forward failed ({exc}); attempting daemon recovery", file=sys.stderr)
+        info = ensure_daemon(data_dir)
+        if info is not None:
+            state["info"] = info
+            state["url"] = f"http://127.0.0.1:{info.port}/mcp"
+            try:
+                return forward_one(state["url"], info.token, msg, client=client)
+            except Exception as exc2:
+                exc = exc2
+        rid = msg.get("id")
+        if rid is not None:
+            return {"jsonrpc": "2.0", "id": rid,
+                    "error": {"code": -32000, "message": f"GYSTC daemon unreachable: {exc}"}}
+        return None
+
+
 def run_proxy() -> None:
     data_dir = load_config().data_dir
     info = ensure_daemon(data_dir)
     if info is None:
         print("FATAL: could not reach or start the GYSTC daemon", file=sys.stderr)
         sys.exit(1)
-    url = f"http://127.0.0.1:{info.port}/mcp"
+    state = {"info": info, "url": f"http://127.0.0.1:{info.port}/mcp"}
     out = sys.stdout
-    # IMPORTANT: use readline(), NOT `for line in sys.stdin` (the latter buffers
-    # and would stall interactive stdio).
     with httpx.Client(timeout=60.0) as client:
         while True:
             line = sys.stdin.readline()
             if not line:
-                break  # EOF: Claude Code closed the pipe
+                break
             line = line.strip()
             if not line:
                 continue
@@ -45,11 +65,7 @@ def run_proxy() -> None:
                 msg = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            try:
-                resp = forward_one(url, info.token, msg, client=client)
-            except Exception as exc:
-                print(f"proxy: forward failed: {exc}", file=sys.stderr)
-                continue
+            resp = _forward_with_recovery(client, state, data_dir, msg)
             if resp is not None:
                 out.write(json.dumps(resp) + "\n")
                 out.flush()
