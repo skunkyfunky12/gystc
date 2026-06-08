@@ -81,6 +81,16 @@ class VectorStore:
             id_array = np.array(ids, dtype=np.int64)
             self._index.remove_ids(id_array)
 
+    def reconstruct(self, faiss_idx: int) -> np.ndarray | None:
+        """Return the stored (normalised) vector for a faiss id, or None if absent.
+
+        Read-only; used by curation to find near-duplicate notes without re-embedding."""
+        with self._lock:
+            try:
+                return np.asarray(self._index.reconstruct(int(faiss_idx)), dtype=np.float32)
+            except Exception:
+                return None
+
     def search(
         self, query: np.ndarray, k: int = 10
     ) -> tuple[list[list[float]], list[list[int]]]:

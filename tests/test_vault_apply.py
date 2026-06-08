@@ -32,6 +32,16 @@ def test_archive_moves_not_deletes(tmp_path):
     assert "99 Archiv" in dest.as_posix()              # archived, not deleted
 
 
+def test_archive_whole_directory(tmp_path):
+    v = _repo_vault(tmp_path)
+    (v / "02 Projekte" / "graphify").mkdir()
+    (v / "02 Projekte" / "graphify" / "x().md").write_text("artifact", encoding="utf-8")
+    dest = apply_archive(v, "02 Projekte/graphify")
+    assert not (v / "02 Projekte" / "graphify").exists()
+    assert (dest / "x().md").exists()
+    assert "99 Archiv" in dest.as_posix()
+
+
 def test_archive_refuses_without_git(tmp_path):
     v = tmp_path / "novault"
     (v).mkdir()

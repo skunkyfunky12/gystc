@@ -43,11 +43,11 @@ def unified_diff(old: str, new: str, path: str) -> str:
 
 
 def apply_archive(vault: Path, rel: str) -> Path:
-    """Move a note to '99 Archiv/' (preserving structure). Never hard-deletes,
-    never overwrites an existing archived note."""
+    """Move a note OR a whole folder to '99 Archiv/' (preserving structure).
+    Never hard-deletes, never overwrites an existing archived entry."""
     _require_repo(vault)
     src = _safe_target(vault, rel)
-    if not src.is_file():
+    if not src.exists():
         raise FileNotFoundError(rel)
     dest = _safe_target(vault, f"{_ARCHIVE}/{rel}")
     dest.parent.mkdir(parents=True, exist_ok=True)
