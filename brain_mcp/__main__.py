@@ -268,6 +268,10 @@ def main():
     daemon_p.add_argument("--idle", type=float, default=1800.0,
                           help="Self-shutdown after this many idle seconds (0 = never; default 1800)")
 
+    curate_p = sub.add_parser("curate", help="Vault curation (init/analyze/apply)")
+    curate_p.add_argument("curate_args", nargs=argparse.REMAINDER,
+                          help="init | analyze | apply (see `curate <cmd> -h`)")
+
     args = parser.parse_args()
     if args.command == "index":
         cmd_index(args)
@@ -276,6 +280,9 @@ def main():
     elif args.command == "daemon":
         from brain_mcp.daemon.server import run_daemon
         run_daemon(idle_timeout=args.idle)
+    elif args.command == "curate":
+        from brain_mcp.curation.cli import main as curate_main
+        curate_main(args.curate_args)
     else:  # serve
         if getattr(args, "direct", False):
             cmd_serve(args)            # legacy in-process stdio server
