@@ -17,6 +17,7 @@ class BrainDB:
         self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.execute("PRAGMA wal_autocheckpoint=1000")
         self._lock = threading.RLock()
+        self._closed = False
         run_migrations(self._conn)
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
@@ -25,6 +26,9 @@ class BrainDB:
 
     def close(self) -> None:
         with self._lock:
+            if self._closed:
+                return
+            self._closed = True
             self._conn.close()
 
     def upsert_note(

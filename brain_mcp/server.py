@@ -1,21 +1,25 @@
 from __future__ import annotations
 import asyncio
+import os
 import sys
 import threading
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 from mcp.server.fastmcp import FastMCP
 from brain_mcp.config import BrainConfig, load_config
 from brain_mcp.indexer.embedder import SentenceTransformerBackend
-from brain_mcp.indexer.pipeline import index_vault
+from brain_mcp.indexer.pipeline import index_vault, reindex_note_chunks
+from brain_mcp.indexer.reindex_queue import ReindexWorker
 from brain_mcp.indexer.scanner import parse_note_file
 from brain_mcp.indexer.vector_store import VectorStore
 from brain_mcp.indexer.watcher import BrainWatcher
+from brain_mcp.process_guard import ParentDeathWatchdog
 from brain_mcp.storage.database import BrainDB
+from brain_mcp.storage.file_lock import WriterLock
 from brain_mcp.tools.recent import handle_brain_recent
 from brain_mcp.tools.regions import handle_brain_regions
 from brain_mcp.tools.retrieve import handle_brain_retrieve
@@ -28,6 +32,7 @@ from brain_mcp.indexer.reranker import CrossEncoderReRanker
 WAIT_READY_TIMEOUT = 20
 TOOL_TIMEOUT = 30
 FAISS_SAVE_INTERVAL = 60
+WRITER_PROMOTE_INTERVAL = 20  # readers retry the writer lock this often
 
 
 @dataclass
@@ -39,6 +44,16 @@ class BrainState:
     watcher: BrainWatcher | None = None
     reranker: CrossEncoderReRanker | None = None
     embed_pool: ThreadPoolExecutor | None = None
+    watchdog: ParentDeathWatchdog | None = None
+    reindexer: ReindexWorker | None = None
+    # True only for the single instance that owns indexing (holds the writer
+    # lock). Readers never write index.faiss / faiss_idx, so coexisting servers
+    # can't clobber the shared index.
+    is_writer: bool = True
+    writer_lock: object | None = None
+    _shutdown_lock: object = field(default_factory=threading.Lock)
+    _shut_done: bool = False
+    _shut_complete: object = field(default_factory=threading.Event)
 
 
 def _index_vault(state: BrainState) -> None:
@@ -55,8 +70,12 @@ def _handle_file_change(state: BrainState, path: str, event_type: str) -> None:
         return
     if event_type == "deleted":
         old_row = state.db.get_note_by_path(rel)
-        if old_row and old_row["faiss_idx"] is not None:
-            state.vectors.remove([old_row["faiss_idx"]])
+        if old_row:
+            if old_row["faiss_idx"] is not None:
+                state.vectors.remove([old_row["faiss_idx"]])
+            chunk_faiss = state.db.delete_chunks_for_note(old_row["id"])
+            if chunk_faiss:
+                state.vectors.remove(chunk_faiss)  # don't leak chunk vectors
         state.db.delete_note(rel)
         return
 
@@ -64,11 +83,16 @@ def _handle_file_change(state: BrainState, path: str, event_type: str) -> None:
     if note is None:
         return
 
-    if state.db.get_content_hash(rel) == note["content_hash"]:
+    old_row = state.db.get_note_by_path(rel)
+    hash_match = old_row is not None and old_row["content_hash"] == note["content_hash"]
+    already_embedded = old_row is not None and old_row["faiss_idx"] is not None
+    # Skip only if nothing changed AND it already has a vector. A row whose
+    # faiss_idx is NULL (e.g. written by a read-only instance, or embedded while
+    # the model was still loading) still needs embedding even if the hash matches.
+    if hash_match and already_embedded:
         return
 
-    old_row = state.db.get_note_by_path(rel)
-    old_faiss_idx = old_row["faiss_idx"] if old_row and old_row["faiss_idx"] is not None else None
+    old_faiss_idx = old_row["faiss_idx"] if already_embedded else None
 
     note_id = state.db.upsert_note(
         path=note["path"], title=note["title"], content=note["content"],
@@ -84,32 +108,78 @@ def _handle_file_change(state: BrainState, path: str, event_type: str) -> None:
         state.db.set_faiss_idx(note_id, faiss_ids[0])
         if old_faiss_idx is not None:
             state.vectors.remove([old_faiss_idx])
+        # Refresh chunk vectors too -- otherwise search returns stale snippets
+        # for edited notes and leaks orphaned chunk vectors. This is now the sole
+        # indexing path for reader-written and external (Obsidian) edits.
+        reindex_note_chunks(state.db, state.vectors, state.embedder,
+                            note_id, note["title"], note["content"])
         print(f"Re-indexed: {rel}", file=sys.stderr)
     except Exception as exc:
         print(f"Embedding error for {rel}: {exc}", file=sys.stderr)
 
 
-def _kill_zombie_siblings() -> None:
-    """Kill other brain_mcp serve processes from previous sessions."""
-    import os
-    try:
-        import psutil
-    except ImportError:
+def _shutdown(state: BrainState) -> None:
+    """Idempotent, single-winner cleanup.
+
+    Both the lifespan 'finally' (stdin EOF) and the parent-death watchdog
+    (_orphan_exit) can fire when a client disconnects -- sometimes at the same
+    instant. Funnelling both through here means save()+close() run exactly once
+    instead of racing on the shared db handle (which printed 'closed database'
+    errors), and the re-index worker is drained before the DB is closed so no
+    re-index is killed mid-write.
+    """
+    with state._shutdown_lock:
+        first = not state._shut_done
+        state._shut_done = True
+    if not first:
+        # Another thread already owns cleanup. Wait for it to FINISH before
+        # returning, so a caller that follows _shutdown with os._exit (the
+        # watchdog) can't pre-empt an in-flight drain/save on the winning path.
+        state._shut_complete.wait(timeout=8)
         return
-    my_pid = os.getpid()
+
     try:
-        for proc in psutil.process_iter(["pid", "cmdline"]):
+        if state.watchdog is not None:
+            state.watchdog.stop()
+        if state.watcher is not None:
+            state.watcher.stop()
+        if state.reindexer is not None:
+            state.reindexer.stop()
+            state.reindexer.join(timeout=5)  # let the in-flight re-index finish
+        # Only the writer instance owns index.faiss; readers must never persist it.
+        if state.is_writer:
             try:
-                if proc.pid == my_pid:
-                    continue
-                cmdline = proc.info.get("cmdline") or []
-                if any("brain_mcp" in arg for arg in cmdline) and any("serve" in arg for arg in cmdline):
-                    print(f"Killing zombie GYSTC process: PID {proc.pid}", file=sys.stderr)
-                    proc.kill()
-            except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
-                pass
-    except (OSError, psutil.Error) as exc:
-        print(f"WARNING: Zombie cleanup skipped: {exc}", file=sys.stderr)
+                state.vectors.save(state.config.index_path)
+            except Exception as exc:
+                print(f"shutdown: index save failed: {exc}", file=sys.stderr)
+        if state.embed_pool is not None:
+            try:
+                state.embed_pool.shutdown(wait=False, cancel_futures=True)
+            except Exception as exc:
+                print(f"shutdown: embed pool shutdown failed: {exc}", file=sys.stderr)
+        try:
+            state.db.close()
+        except Exception as exc:
+            print(f"shutdown: db close failed: {exc}", file=sys.stderr)
+        if state.writer_lock is not None:
+            try:
+                state.writer_lock.release()
+            except Exception as exc:
+                print(f"shutdown: writer-lock release failed: {exc}", file=sys.stderr)
+    finally:
+        state._shut_complete.set()
+
+
+def _orphan_exit(state: BrainState) -> None:
+    """Called by the parent-death watchdog when the client that spawned this
+    server is gone. Clean up, then force-exit so no orphaned server lingers
+    holding brain.db. Lingering orphans (combined with the old global
+    sibling-killer) were the root of the random 'Connection closed' disconnects.
+    """
+    print("Client/parent gone -> shutting down orphaned GYSTC server.", file=sys.stderr)
+    _shutdown(state)
+    sys.stderr.flush()
+    os._exit(0)
 
 
 def _periodic_faiss_save(state: BrainState) -> None:
@@ -124,9 +194,57 @@ def _periodic_faiss_save(state: BrainState) -> None:
             print(f"WARNING: Periodic FAISS save failed: {exc}", file=sys.stderr)
 
 
-def _background_startup(state: BrainState, model_thread: threading.Thread) -> None:
+def _start_indexing(state: BrainState) -> None:
+    """Writer-only: reconcile the vault, then watch it for changes. Called once
+    when this instance becomes the writer -- at startup or via promotion."""
+    vault_exists = state.config.vault_path is not None and state.config.vault_path.is_dir()
+    if vault_exists:
+        # Always reconcile (incremental -- skips unchanged notes via content hash),
+        # independent of index_on_startup, so notes a reader wrote while no writer
+        # was alive get picked up. Otherwise they'd stay search-invisible.
+        try:
+            _index_vault(state)
+        except Exception as exc:
+            print(f"ERROR: Writer reconcile scan failed: {exc}", file=sys.stderr)
+    if vault_exists and state.config.auto_index:
+        # Re-index off the observer thread, serially + debounced per path,
+        # so a burst of file changes doesn't storm the global DB lock.
+        reindexer = ReindexWorker(lambda p, e: _handle_file_change(state, p, e))
+        reindexer.start()
+        state.reindexer = reindexer
+        watcher = BrainWatcher(state.config.vault_path, reindexer.submit)
+        watcher.start()
+        state.watcher = watcher
     try:
-        vault_exists = state.config.vault_path is not None and state.config.vault_path.is_dir()
+        state.vectors.save(state.config.index_path)
+    except Exception as exc:
+        print(f"WARNING: Initial FAISS save failed: {exc}", file=sys.stderr)
+    saver = threading.Thread(target=_periodic_faiss_save, args=(state,), daemon=True)
+    saver.start()
+
+
+def _promotion_loop(state: BrainState, writer_lock: WriterLock) -> None:
+    """Reader-only: periodically retry the writer lock. If the writer instance
+    exits, take over indexing so reader writes don't pile up un-indexed."""
+    import time
+    while not state._shut_done:
+        time.sleep(WRITER_PROMOTE_INTERVAL)
+        if state._shut_done:
+            return
+        if writer_lock.acquire():
+            if state._shut_done:
+                writer_lock.release()
+                return
+            state.writer_lock = writer_lock
+            state.is_writer = True
+            print("GYSTC: promoted to writer (previous writer exited).", file=sys.stderr)
+            _start_indexing(state)
+            return
+
+
+def _background_startup(state: BrainState, model_thread: threading.Thread,
+                        writer_lock: WriterLock) -> None:
+    try:
         model_thread.join(timeout=120)
         if model_thread.is_alive():
             print("WARNING: Model still loading after 120s, skipping startup indexing.", file=sys.stderr)
@@ -134,22 +252,15 @@ def _background_startup(state: BrainState, model_thread: threading.Thread) -> No
         if not state.embedder.is_ready:
             print("ERROR: Model thread finished but model not ready.", file=sys.stderr)
             return
-        if vault_exists and state.config.index_on_startup:
-            try:
-                _index_vault(state)
-            except Exception as exc:
-                print(f"ERROR: Startup indexing failed: {exc}", file=sys.stderr)
-        if vault_exists and state.config.auto_index:
-            watcher = BrainWatcher(state.config.vault_path, lambda p, e: _handle_file_change(state, p, e))
-            watcher.start()
-            state.watcher = watcher
-        try:
-            state.vectors.save(state.config.index_path)
-        except Exception as exc:
-            print(f"WARNING: Initial FAISS save failed: {exc}", file=sys.stderr)
-        saver = threading.Thread(target=_periodic_faiss_save, args=(state,), daemon=True)
-        saver.start()
-        print("Background startup complete.", file=sys.stderr)
+        if state.is_writer:
+            _start_indexing(state)
+            print("Background startup complete (writer).", file=sys.stderr)
+        else:
+            # Read-only instance: model is loaded (for query embedding) but this
+            # instance never indexes/persists -- the writer owns that. Keep trying
+            # to take over if the writer ever exits.
+            print("Background startup complete (read-only instance).", file=sys.stderr)
+            _promotion_loop(state, writer_lock)
     except Exception as exc:
         import traceback
         print(f"ERROR: Background startup crashed: {exc}", file=sys.stderr)
@@ -160,7 +271,6 @@ def _background_startup(state: BrainState, model_thread: threading.Thread) -> No
 async def brain_lifespan(server: FastMCP) -> AsyncIterator[BrainState]:
     import time
     t0 = time.perf_counter()
-    _kill_zombie_siblings()
     config = load_config()
     config.data_dir.mkdir(parents=True, exist_ok=True)
     db = BrainDB(config.db_path)
@@ -175,30 +285,37 @@ async def brain_lifespan(server: FastMCP) -> AsyncIterator[BrainState]:
     embed_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="gystc-embed")
     state = BrainState(config=config, db=db, vectors=vectors, embedder=embedder,
                        reranker=reranker, embed_pool=embed_pool)
+    # Elect a single writer instance. stdio MCP runs one server per client
+    # (this CLI + Hermes + Command Center); only the lock holder owns index.faiss
+    # and the faiss_idx column. Readers stay fully usable (FTS + the on-disk
+    # index snapshot + the shared brain.db) but never persist the index.
+    writer_lock = WriterLock(config.data_dir / "writer.lock")
+    if writer_lock.acquire():
+        state.is_writer = True
+        state.writer_lock = writer_lock
+    else:
+        state.is_writer = False
     startup_ms = int((time.perf_counter() - t0) * 1000)
-    print(f"GYSTC MCP started in {startup_ms}ms. Vault: {config.vault_path}", file=sys.stderr)
+    role = "writer" if state.is_writer else "read-only"
+    print(f"GYSTC MCP started in {startup_ms}ms ({role}). Vault: {config.vault_path}", file=sys.stderr)
     print(f"DB: {config.db_path} | Index: {vectors.size} vectors", file=sys.stderr)
 
-    bg = threading.Thread(target=_background_startup, args=(state, model_thread), daemon=True)
+    bg = threading.Thread(target=_background_startup, args=(state, model_thread, writer_lock), daemon=True)
     bg.start()
+
+    # Self-terminate if the client that spawned us disappears, instead of
+    # lingering as an orphan holding brain.db. Replaces the old global
+    # _kill_zombie_siblings, which disconnected live one-server-per-client
+    # siblings (this CLI, Hermes, Command Center each spawn their own server).
+    if os.environ.get("GYSTC_NO_PARENT_WATCHDOG") != "1":
+        watchdog = ParentDeathWatchdog(os.getppid(), lambda: _orphan_exit(state))
+        watchdog.start()
+        state.watchdog = watchdog
 
     try:
         yield state
     finally:
-        if state.watcher is not None:
-            state.watcher.stop()
-        try:
-            vectors.save(config.index_path)
-        except Exception as exc:
-            print(f"ERROR: Failed to save FAISS index: {exc}", file=sys.stderr)
-        try:
-            db.close()
-        except Exception as exc:
-            print(f"ERROR: Failed to close database: {exc}", file=sys.stderr)
-        try:
-            embed_pool.shutdown(wait=False, cancel_futures=True)
-        except Exception as exc:
-            print(f"ERROR: Failed to shut down embed pool: {exc}", file=sys.stderr)
+        _shutdown(state)
         print("GYSTC MCP stopped.", file=sys.stderr)
 
 BRAIN_INSTRUCTIONS = """
@@ -411,6 +528,7 @@ async def brain_store(title: str, content: str, region: str | None = None, regio
                     state.db, state.vectors, state.embedder, state.config.vault_path,
                     title=title, content=content, region=region, region_idx=region_idx,
                     tags=tags, folder=folder, watcher=state.watcher,
+                    persist=state.is_writer,
                 ),
             ),
             timeout=TOOL_TIMEOUT,
@@ -540,6 +658,7 @@ async def brain_versions(
                 state.db, state.config.vault_path, path=path,
                 version_id=version_id, watcher=state.watcher,
                 vectors=state.vectors, embedder=state.embedder,
+                persist=state.is_writer,
             )
         return {"error": f"Unknown action: {action}. Use 'history', 'diff', or 'rollback'."}
 

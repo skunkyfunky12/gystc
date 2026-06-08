@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 
 
@@ -37,6 +38,12 @@ def cmd_index(args):
 def cmd_serve(args):
     from brain_mcp.server import mcp
     mcp.run(transport="stdio")
+    # mcp.run() returned -> stdin EOF -> the client disconnected. Force a
+    # prompt process exit so a worker thread that is mid-embed can't keep this
+    # server (and its brain.db handle) alive as an orphan. Lifespan cleanup
+    # has already run inside mcp.run().
+    sys.stderr.flush()
+    os._exit(0)
 
 
 def cmd_config(args):

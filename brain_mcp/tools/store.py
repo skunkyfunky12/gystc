@@ -50,6 +50,7 @@ def handle_brain_store(
     tags: list[str] | None = None,
     folder: str = "",
     watcher: BrainWatcher | None = None,
+    persist: bool = True,
 ) -> dict:
     if len(content) > MAX_CONTENT_SIZE:
         return {"error": f"Content exceeds {MAX_CONTENT_SIZE} byte limit"}
@@ -116,31 +117,37 @@ def handle_brain_store(
     now = datetime.now(timezone.utc)
     content_hash = compute_content_hash(content)
     word_count = len(content.split())
-    # Read old FAISS index before upsert to remove ghost vector
-    old_row = db.get_note_by_path(rel_path)
-    old_faiss_idx = old_row["faiss_idx"] if old_row and old_row["faiss_idx"] is not None else None
 
-    note_id = db.upsert_note(
-        path=rel_path, title=safe_title, content=content, content_hash=content_hash,
-        region_idx=r_idx, tags=tags, word_count=word_count,
-        created_at=now.strftime("%Y-%m-%d"),
-        modified_at=now.isoformat(),
-    )
-
+    # Read-only (non-writer) instances write the .md file but never touch
+    # brain.db / index.faiss — the single writer instance owns indexing and will
+    # pick this file up via its watcher. This prevents coexisting servers from
+    # clobbering the shared FAISS index and faiss_idx column.
     indexed = False
-    if embedder.is_ready:
-        try:
-            vec = embedder.embed([content])
-            if old_faiss_idx is not None:
-                vectors.remove([old_faiss_idx])
-            faiss_ids = vectors.add(vec)
-            db.set_faiss_idx(note_id, faiss_ids[0])
-            # Refresh chunk vectors too — otherwise search returns stale snippets
-            # for this note after every edit.
-            reindex_note_chunks(db, vectors, embedder, note_id, safe_title, content)
-            indexed = True
-        except Exception as exc:
-            print(f"Embedding failed for '{title}': {exc}", file=sys.stderr)
+    if persist:
+        # Read old FAISS index before upsert to remove ghost vector
+        old_row = db.get_note_by_path(rel_path)
+        old_faiss_idx = old_row["faiss_idx"] if old_row and old_row["faiss_idx"] is not None else None
+
+        note_id = db.upsert_note(
+            path=rel_path, title=safe_title, content=content, content_hash=content_hash,
+            region_idx=r_idx, tags=tags, word_count=word_count,
+            created_at=now.strftime("%Y-%m-%d"),
+            modified_at=now.isoformat(),
+        )
+
+        if embedder.is_ready:
+            try:
+                vec = embedder.embed([content])
+                if old_faiss_idx is not None:
+                    vectors.remove([old_faiss_idx])
+                faiss_ids = vectors.add(vec)
+                db.set_faiss_idx(note_id, faiss_ids[0])
+                # Refresh chunk vectors too — otherwise search returns stale snippets
+                # for this note after every edit.
+                reindex_note_chunks(db, vectors, embedder, note_id, safe_title, content)
+                indexed = True
+            except Exception as exc:
+                print(f"Embedding failed for '{title}': {exc}", file=sys.stderr)
 
     result = {
         "path": rel_path,
@@ -149,6 +156,8 @@ def handle_brain_store(
         "indexed": indexed,
         "word_count": word_count,
     }
+    if not persist:
+        result["persisted_by"] = "primary"
 
     if title_was_sanitized:
         result["title_sanitized"] = True
