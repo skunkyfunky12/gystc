@@ -250,7 +250,9 @@ def main():
     parser = argparse.ArgumentParser(prog="brain_mcp", description="GYSTC MCP Server")
     sub = parser.add_subparsers(dest="command")
 
-    sub.add_parser("serve", help="Start MCP server (default)")
+    serve_p = sub.add_parser("serve", help="Start MCP server (default)")
+    serve_p.add_argument("--direct", action="store_true",
+                         help="Run the in-process stdio server instead of the shared daemon proxy")
 
     index_p = sub.add_parser("index", help="Build/update vault index")
     index_p.add_argument("--vault", type=str, help="Vault directory path")
@@ -274,8 +276,12 @@ def main():
     elif args.command == "daemon":
         from brain_mcp.daemon.server import run_daemon
         run_daemon(idle_timeout=args.idle)
-    else:
-        cmd_serve(args)
+    else:  # serve
+        if getattr(args, "direct", False):
+            cmd_serve(args)            # legacy in-process stdio server
+        else:
+            from brain_mcp.daemon.proxy import run_proxy
+            run_proxy()
 
 
 if __name__ == "__main__":
