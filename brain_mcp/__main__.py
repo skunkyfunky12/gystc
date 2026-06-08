@@ -265,6 +265,8 @@ def main():
     config_p.add_argument("value", nargs="?", help="Config value (for set)")
 
     daemon_p = sub.add_parser("daemon", help="Run the shared background daemon (HTTP)")
+    daemon_p.add_argument("--idle", type=float, default=1800.0,
+                          help="Self-shutdown after this many idle seconds (0 = never; default 1800)")
 
     args = parser.parse_args()
     if args.command == "index":
@@ -273,7 +275,7 @@ def main():
         cmd_config(args)
     elif args.command == "daemon":
         from brain_mcp.daemon.server import run_daemon
-        run_daemon()
+        run_daemon(idle_timeout=args.idle)
     else:  # serve
         if getattr(args, "direct", False):
             cmd_serve(args)            # legacy in-process stdio server

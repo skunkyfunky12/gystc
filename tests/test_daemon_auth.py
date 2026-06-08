@@ -56,6 +56,28 @@ async def test_rejects_oversized_body():
         assert small.status_code == 200
 
 
+def test_idle_expired_predicate():
+    from brain_mcp.daemon.server import _idle_expired
+    assert _idle_expired(100.0, 100.0 + 31, 30) is True
+    assert _idle_expired(100.0, 100.0 + 20, 30) is False
+    assert _idle_expired(100.0, 100.0 + 9999, 0) is False  # 0 disables idle shutdown
+
+
+@pytest.mark.asyncio
+async def test_on_request_fires_only_for_authorized_requests():
+    hits = []
+    async def ok(request): return PlainTextResponse("ok")
+    app = Starlette(routes=[Route("/mcp", ok, methods=["POST"])])
+    app.add_middleware(build_guard_middleware(
+        token="good", allowed_origins=["http://127.0.0.1"], on_request=lambda: hits.append(1)))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                 base_url="http://testserver") as c:
+        await c.post("/mcp", headers={"Authorization": "Bearer good"})
+        assert hits == [1]
+        await c.post("/mcp")  # unauthorized -> 401, must NOT reset the idle timer
+        assert hits == [1]
+
+
 def test_free_port_is_int_in_range():
     p = free_port()
     assert isinstance(p, int) and 1024 <= p <= 65535

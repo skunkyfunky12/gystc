@@ -102,3 +102,34 @@ def test_proxy_replies_even_if_daemon_dies_midsession(tmp_path):
             try:
                 d = json.loads(pidfile.read_text(encoding="utf-8")); os.kill(int(d["pid"]), signal.SIGTERM)
             except Exception: pass
+
+
+@pytest.mark.slow
+def test_daemon_self_shuts_down_when_idle(tmp_path):
+    """A daemon started with a short --idle exits on its own with no requests."""
+    import json, os, subprocess, sys, time
+    from pathlib import Path
+    repo = Path(__file__).resolve().parent.parent
+    vault = tmp_path / "vault"; vault.mkdir()
+    (vault / "n.md").write_text("# h\nx\n", encoding="utf-8")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"vault_path": str(vault), "auto_index": False, "index_on_startup": False}),
+        encoding="utf-8")
+    env = dict(os.environ, BRAIN_DATA_DIR=str(tmp_path), BRAIN_VAULT_PATH=str(vault),
+               PYTHONPATH=str(repo), PYTHONUTF8="1", PYTHONIOENCODING="utf-8",
+               HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1")
+    p = subprocess.Popen([sys.executable, "-m", "brain_mcp", "daemon", "--idle", "3"],
+                         cwd=str(repo), env=env, stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        time.sleep(2)
+        assert p.poll() is None, "daemon exited before it could serve"
+        end = time.time() + 15  # idle 3s + ~1s watch interval + startup slack
+        while time.time() < end and p.poll() is None:
+            time.sleep(0.3)
+        assert p.poll() is not None, "daemon did not self-shut-down when idle"
+    finally:
+        if p.poll() is None:
+            p.terminate()
+            try: p.wait(timeout=5)
+            except Exception: p.kill()

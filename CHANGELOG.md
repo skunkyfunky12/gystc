@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.3.5 — Daemon idle-shutdown + security hardening (2026-06-08)
+
+### Added
+- **Daemon idle-shutdown**: the shared daemon now self-terminates after `--idle` seconds (default 1800)
+  with no authorized request, freeing the embedding model + index from memory. The proxy transparently
+  respawns it on the next call, so this is invisible to clients. `--idle 0` keeps it resident.
+
+### Security (hardening from a full audit + semgrep; all defense-in-depth, no critical/high)
+- `is_alive` now fails **closed** on a pid-check error instead of probing (and leaking the bearer token
+  to) a possibly-reused port.
+- `/mcp` request bodies are capped at 8 MB (413) so a token-holder can't OOM the shared daemon — parity
+  with the GUI `/api`.
+- Network-facing dependencies gained upper bounds (`mcp<2`, `httpx<1`, …) against silent / supply-chain
+  major upgrades; distributed binaries remain the CI-frozen PyInstaller build.
+
 ## v1.3.4 — Shared daemon: load the model once (2026-06-08)
 
 All MCP clients (Claude CLI, Hermes, Command Center) now share ONE long-lived daemon that loads
