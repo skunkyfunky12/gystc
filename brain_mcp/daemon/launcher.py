@@ -11,12 +11,19 @@ def daemon_health_url(info: DaemonInfo) -> str:
 
 
 def is_alive(info, timeout: float = 1.0) -> bool:
+    # Never send the bearer token to a port we can't first attribute to our own
+    # daemon pid. Fail CLOSED if the pid check can't run (don't probe a possibly
+    # reused port) -- a bare best-effort pass would defeat this very guard.
     try:
         import psutil
-        if not psutil.pid_exists(info.pid):
-            return False  # don't probe (and leak the token to) a reused port
-    except Exception:
-        pass  # psutil unavailable -> best effort
+    except ImportError:
+        psutil = None
+    if psutil is not None:
+        try:
+            if not psutil.pid_exists(info.pid):
+                return False
+        except Exception:
+            return False  # can't verify the pid -> do not leak the token
     try:
         r = httpx.get(daemon_health_url(info),
                       headers={"Authorization": f"Bearer {info.token}"}, timeout=timeout)

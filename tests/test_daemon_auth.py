@@ -42,6 +42,20 @@ async def test_allows_known_origin():
         r = await c.post("/mcp", headers={"Authorization": "Bearer good", "Origin": "http://127.0.0.1"})
         assert r.status_code == 200
 
+@pytest.mark.asyncio
+async def test_rejects_oversized_body():
+    async def ok(request): return PlainTextResponse("ok")
+    app = Starlette(routes=[Route("/mcp", ok, methods=["POST"])])
+    app.add_middleware(build_guard_middleware(
+        token="good", allowed_origins=["http://127.0.0.1"], max_body=50))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                 base_url="http://testserver") as c:
+        big = await c.post("/mcp", headers={"Authorization": "Bearer good"}, content=b"x" * 100)
+        assert big.status_code == 413
+        small = await c.post("/mcp", headers={"Authorization": "Bearer good"}, content=b"x" * 10)
+        assert small.status_code == 200
+
+
 def test_free_port_is_int_in_range():
     p = free_port()
     assert isinstance(p, int) and 1024 <= p <= 65535

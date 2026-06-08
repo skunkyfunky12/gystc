@@ -3,7 +3,11 @@ import hmac, secrets, socket, sys
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
-def build_guard_middleware(token: str, allowed_origins: list[str]):
+MAX_BODY_BYTES = 8 * 1024 * 1024  # /mcp request-body cap (note-content cap is 1 MB)
+
+
+def build_guard_middleware(token: str, allowed_origins: list[str],
+                           max_body: int = MAX_BODY_BYTES):
     class Guard(BaseHTTPMiddleware):
         async def dispatch(self, request, call_next):
             origin = request.headers.get("origin")
@@ -12,6 +16,15 @@ def build_guard_middleware(token: str, allowed_origins: list[str]):
             auth = request.headers.get("authorization", "")
             if not (auth and hmac.compare_digest(auth, f"Bearer {token}")):
                 return JSONResponse({"error": "unauthorized"}, status_code=401)
+            # Bound the body so a token-holder can't OOM the shared daemon.
+            cl = request.headers.get("content-length")
+            if cl is not None:
+                try:
+                    over = int(cl) > max_body
+                except ValueError:
+                    return JSONResponse({"error": "bad content-length"}, status_code=400)
+                if over:
+                    return JSONResponse({"error": "payload too large"}, status_code=413)
             return await call_next(request)
     return Guard
 
