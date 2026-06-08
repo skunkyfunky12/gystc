@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.3.4 — Shared daemon: load the model once (2026-06-08)
+
+All MCP clients (Claude CLI, Hermes, Command Center) now share ONE long-lived daemon that loads
+the embedding model + index once, instead of each client spawning its own ~400 MB server.
+
+### Added
+- **Shared daemon** (`brain_mcp daemon`): the GYSTC server over streamable-HTTP on 127.0.0.1,
+  secured with a per-run bearer token + Origin allow-list (DNS-rebinding protection) and a held
+  ephemeral port (no port TOCTOU / token leak). Single-instance via a lock file.
+- **`brain_mcp serve` is now a thin stdio↔HTTP proxy**: it auto-starts the daemon if needed and
+  forwards JSON-RPC to it. The model is loaded once for the whole machine — Hermes no longer pays
+  a ~6 s cold start per run. If the daemon dies mid-session the proxy respawns it and never hangs
+  the client (returns a JSON-RPC error as a last resort).
+- **`serve --direct`**: escape hatch that runs the previous in-process stdio server unchanged.
+
+### Notes
+- Deferred to a follow-up: daemon idle-shutdown, a logon autostart task for warm starts, and
+  retiring the now-redundant per-process writer-lock. The daemon stays resident once started.
+- 239 tests passing; verified end-to-end, including a mid-session daemon kill (client never hangs).
+
 ## v1.3.3 — Multi-client stability (2026-06-08)
 
 Fixes the random `Connection closed` / "MCP stopped working" disconnects and makes
