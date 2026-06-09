@@ -21,10 +21,25 @@ PENDING_WRITE_CLEANUP = 5.0
 
 
 class _Handler(FileSystemEventHandler):
-    def __init__(self, on_change: Callable[[str, str], None], pending: dict[str, float], lock: threading.Lock):
+    def __init__(self, on_change: Callable[[str, str], None], pending: dict[str, float],
+                 lock: threading.Lock, vault_root: Path, exclude_dirs: list[str] | None = None):
         self._on_change = on_change
         self._pending = pending
         self._lock = lock
+        self._vault_root = vault_root
+        self._excluded = {d.casefold() for d in (exclude_dirs or [])}
+
+    def _is_excluded(self, path: str) -> bool:
+        """Skip .obsidian and any configured excluded dir, mirroring the scanner."""
+        if ".obsidian" in Path(path).parts:
+            return True
+        if not self._excluded:
+            return False
+        try:
+            parts = Path(path).resolve().relative_to(self._vault_root).parts
+        except ValueError:
+            parts = Path(path).parts
+        return not self._excluded.isdisjoint(p.casefold() for p in parts)
 
     def _is_pending(self, path: str) -> bool:
         resolved = str(Path(path).resolve())
@@ -49,12 +64,12 @@ class _Handler(FileSystemEventHandler):
 
     def on_created(self, event: FileCreatedEvent) -> None:
         if not event.is_directory and event.src_path.endswith(".md"):
-            if not self._is_pending(event.src_path):
+            if not self._is_excluded(event.src_path) and not self._is_pending(event.src_path):
                 self._dispatch(event.src_path, "created")
 
     def on_modified(self, event: FileModifiedEvent) -> None:
         if not event.is_directory and event.src_path.endswith(".md"):
-            if not self._is_pending(event.src_path):
+            if not self._is_excluded(event.src_path) and not self._is_pending(event.src_path):
                 self._dispatch(event.src_path, "modified")
 
     def on_deleted(self, event: FileDeletedEvent) -> None:
@@ -67,16 +82,18 @@ class _Handler(FileSystemEventHandler):
         if event.src_path.endswith(".md"):
             self._dispatch(event.src_path, "deleted")
         if event.dest_path.endswith(".md"):
-            if not self._is_pending(event.dest_path):
+            if not self._is_excluded(event.dest_path) and not self._is_pending(event.dest_path):
                 self._dispatch(event.dest_path, "created")
 
 
 class BrainWatcher:
-    def __init__(self, vault_path: Path, on_change: Callable[[str, str], None]):
+    def __init__(self, vault_path: Path, on_change: Callable[[str, str], None],
+                 exclude_dirs: list[str] | None = None):
         self._vault_path = vault_path
         self._lock = threading.Lock()
         self._pending_writes: dict[str, float] = {}
-        self._handler = _Handler(on_change, self._pending_writes, self._lock)
+        self._handler = _Handler(on_change, self._pending_writes, self._lock,
+                                 Path(vault_path).resolve(), exclude_dirs)
         self._observer = Observer()
         self._observer.daemon = True
 

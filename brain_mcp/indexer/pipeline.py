@@ -20,14 +20,26 @@ def index_vault(
     vault_path: Path,
     folder_to_region: dict[str, int],
     force: bool = False,
+    exclude_dirs: list[str] | None = None,
 ) -> int:
     """Scan vault, skip unchanged files, upsert notes, embed new/changed, build edges.
 
     Returns the number of newly embedded notes.
     """
-    notes = scan_vault(vault_path, folder_to_region)
+    notes = scan_vault(vault_path, folder_to_region, exclude_dirs=exclude_dirs)
     title_to_id: dict[str, int] = {}
     to_embed: list[tuple[int, str]] = []
+
+    # Prune notes that vanished from the scan (deleted on disk OR moved into a
+    # now-excluded dir). Otherwise a rebuild leaves orphan rows whose stale
+    # faiss_idx collide with freshly assigned ids -> corrupt search. Fail-safe:
+    # never prune on an empty scan, so a transient scan glitch can't wipe the
+    # whole brain.
+    scanned_paths = {note["path"] for note in notes}
+    if scanned_paths:
+        stale_faiss = db.delete_notes_not_in(scanned_paths)
+        if stale_faiss and not force:
+            vectors.remove(stale_faiss)
 
     if force:
         vectors.reset()
@@ -89,7 +101,10 @@ def index_vault(
         chunks = split_into_chunks(note["content"], note["title"])
         if not chunks:
             old_chunk_faiss = db.delete_chunks_for_note(note_id)
-            if old_chunk_faiss:
+            # On force the store was reset() -> these stale ids are either gone
+            # or now belong to freshly-added note vectors; removing them would
+            # silently delete a real note's vector. reset() already cleared them.
+            if old_chunk_faiss and not force:
                 vectors.remove(old_chunk_faiss)
             continue
 
@@ -105,7 +120,9 @@ def index_vault(
                 continue
 
         old_chunk_faiss = db.replace_chunks(note_id, chunks)
-        if old_chunk_faiss:
+        # See note above: never feed stale chunk ids back into remove() on force,
+        # or they collide with freshly-assigned note-vector ids (silent loss).
+        if old_chunk_faiss and not force:
             vectors.remove(old_chunk_faiss)
         for chunk in chunks:
             chunks_to_embed.append((note_id, chunk["chunk_idx"], chunk["content"]))

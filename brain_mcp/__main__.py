@@ -26,7 +26,8 @@ def cmd_index(args):
     print(f"Scanning vault: {config.vault_path}", file=sys.stderr)
     try:
         count = index_vault(db, vectors, embedder, config.vault_path,
-                            config.folder_to_region, force=args.force)
+                            config.folder_to_region, force=args.force,
+                            exclude_dirs=config.exclude_dirs)
         if count == 0:
             print("No new/changed notes to embed.", file=sys.stderr)
         vectors.save(config.index_path)
@@ -73,6 +74,10 @@ def cmd_config(args):
         else:
             print("  folder_to_region  (empty)")
         print(f"  log_level         {config.log_level}")
+        if config.exclude_dirs:
+            print(f"  exclude_dirs      {', '.join(config.exclude_dirs)}")
+        else:
+            print("  exclude_dirs      (none)")
         print("-" * 60)
         if config.db_path.exists():
             try:
@@ -140,6 +145,8 @@ def cmd_config(args):
                 print(f"ERROR: region index must be 0-11, got: {idx_str}", file=sys.stderr)
                 sys.exit(1)
             config.folder_to_region[folder] = idx
+        elif key == "exclude_dirs":
+            config.exclude_dirs = [d.strip() for d in value.split(",") if d.strip()]
         else:
             print(f"ERROR: Unknown key: {key}", file=sys.stderr)
             print(f"Valid keys: {', '.join(sorted(KNOWN_KEYS))}", file=sys.stderr)
@@ -233,7 +240,8 @@ def cmd_config(args):
             vectors = VectorStore.load(config.index_path, dimension=embedder.dimension)
             t0 = time.time()
             try:
-                count = index_vault(db, vectors, embedder, config.vault_path, config.folder_to_region)
+                count = index_vault(db, vectors, embedder, config.vault_path,
+                                    config.folder_to_region, exclude_dirs=config.exclude_dirs)
                 vectors.save(config.index_path)
                 elapsed = time.time() - t0
                 print(f"   Indexed {count} notes in {elapsed:.1f}s.")

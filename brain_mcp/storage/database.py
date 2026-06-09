@@ -193,6 +193,46 @@ class BrainDB:
                 self._conn.execute("DELETE FROM notes WHERE id=?", (row["id"],))
                 self._conn.commit()
 
+    def delete_notes_not_in(self, keep_paths: set[str]) -> list[int]:
+        """Delete every note whose path is not in *keep_paths* and return the
+        FAISS ids (note-level + chunk-level) the caller must drop from the
+        vector store.
+
+        Used by a (re)build to prune notes that vanished from the scan -- e.g.
+        deleted on disk or moved into a newly-excluded directory.  Without this,
+        a force-rebuild leaves orphan rows whose stale ``faiss_idx`` collide
+        with freshly assigned ids -> corrupt search results.  Chunks, edges and
+        versions are removed via ``ON DELETE CASCADE``; the external-content FTS
+        mirror is kept in sync explicitly (FTS5 does not auto-delete).
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, path, title, content, faiss_idx FROM notes"
+            ).fetchall()
+            stale = [r for r in rows if r["path"] not in keep_paths]
+            if not stale:
+                return []
+            faiss_ids: list[int] = []
+            for r in stale:
+                if r["faiss_idx"] is not None:
+                    faiss_ids.append(r["faiss_idx"])
+                chunk_rows = self._conn.execute(
+                    "SELECT faiss_idx FROM chunks WHERE note_id=? AND faiss_idx IS NOT NULL",
+                    (r["id"],),
+                ).fetchall()
+                faiss_ids.extend(c["faiss_idx"] for c in chunk_rows)
+                self._conn.execute(
+                    "INSERT INTO notes_fts(notes_fts, rowid, title, content) VALUES('delete', ?, ?, ?)",
+                    (r["id"], r["title"], r["content"]),
+                )
+            ids = [r["id"] for r in stale]
+            placeholders = ",".join("?" for _ in ids)
+            self._conn.execute(
+                f"DELETE FROM notes WHERE id IN ({placeholders})", tuple(ids)
+            )
+            self._conn.commit()
+            return faiss_ids
+
     def upsert_edge(self, source_id: int, target_id: int, link_text: str = "",
                     edge_type: str = "backlink", weight: float = 1.0,
                     confidence: float | None = None, source_file: str = "") -> None:

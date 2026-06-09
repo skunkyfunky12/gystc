@@ -60,7 +60,8 @@ def _index_vault(state: BrainState) -> None:
     if state.config.vault_path is None or not state.config.vault_path.is_dir():
         return
     index_vault(state.db, state.vectors, state.embedder,
-                state.config.vault_path, state.config.folder_to_region)
+                state.config.vault_path, state.config.folder_to_region,
+                exclude_dirs=state.config.exclude_dirs)
 
 
 def _handle_file_change(state: BrainState, path: str, event_type: str) -> None:
@@ -212,7 +213,8 @@ def _start_indexing(state: BrainState) -> None:
         reindexer = ReindexWorker(lambda p, e: _handle_file_change(state, p, e))
         reindexer.start()
         state.reindexer = reindexer
-        watcher = BrainWatcher(state.config.vault_path, reindexer.submit)
+        watcher = BrainWatcher(state.config.vault_path, reindexer.submit,
+                               exclude_dirs=state.config.exclude_dirs)
         watcher.start()
         state.watcher = watcher
     try:
