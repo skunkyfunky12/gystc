@@ -1,8 +1,16 @@
-"""Assign #brain/<region> tags to all graphify notes based on their community."""
-from pathlib import Path
-import re
+"""Assign #brain/<region> tags to all graphify notes based on their community.
 
-VAULT = Path(r"%USERPROFILE%\Desktop\REDACTED\Claude Stuff\Claude Brain Vault\Claude Brain")
+Usage:  python tag_vault.py <vault_path>   (or set GYSTC_VAULT)
+"""
+import os
+import re
+import sys
+from pathlib import Path
+
+_vault_arg = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("GYSTC_VAULT", "")
+if not _vault_arg:
+    sys.exit("Usage: python tag_vault.py <vault_path>  (or set GYSTC_VAULT)")
+VAULT = Path(_vault_arg)
 
 COMMUNITY_TO_REGION = {
     # Visual / UI
