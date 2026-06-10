@@ -237,6 +237,27 @@ class BrainDB:
             self._conn.execute("UPDATE chunks SET faiss_idx=NULL")
             self._conn.commit()
 
+    def clear_faiss_idx(self, note_id: int) -> int | None:
+        """NULL one note's faiss_idx (+ embedded_at) and return the previous
+        stamp so the caller can drop its vector.
+
+        Detach-then-embed: callers clear BEFORE embedding changed content so a
+        failed embed leaves the row retryable (faiss_idx IS NULL — picked up by
+        the next reconcile) instead of permanently mapped to the OLD content's
+        vector (upsert_note keeps stamps via COALESCE, and hash-match + stamp
+        means 'skip forever')."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT faiss_idx FROM notes WHERE id=?", (note_id,)
+            ).fetchone()
+            previous = row["faiss_idx"] if row is not None else None
+            self._conn.execute(
+                "UPDATE notes SET faiss_idx=NULL, embedded_at=NULL WHERE id=?",
+                (note_id,),
+            )
+            self._conn.commit()
+        return previous
+
     def has_faiss_stamps(self) -> bool:
         """True if any note or chunk row still carries a faiss_idx stamp."""
         with self._lock:

@@ -107,7 +107,6 @@ def handle_brain_rollback(
     # + index and re-indexes the restored file via its watcher.
     reindexed = False
     if persist:
-        old_faiss_idx = note["faiss_idx"] if note["faiss_idx"] is not None else None
         note_id = db.upsert_note(
             path=path,
             title=version["title"],
@@ -120,14 +119,22 @@ def handle_brain_rollback(
         )
 
         # The watcher is suppressed for this write (pending-write), so it won't
-        # re-index for us. Drop the stale vector and re-embed the restored content,
-        # or search would keep returning the pre-rollback version.
-        if vectors is not None and old_faiss_idx is not None:
-            vectors.remove([old_faiss_idx])
+        # re-index for us. Detach-then-embed: drop the pre-rollback vector AND
+        # its stamp before re-embedding, so a failed embed leaves the row
+        # retryable (faiss_idx IS NULL) instead of a stale stamp pointing at a
+        # removed/pre-rollback vector (search would never find the note again).
+        if vectors is not None:
+            old = db.clear_faiss_idx(note_id)
+            if old is not None:
+                vectors.remove([old])
         if vectors is not None and embedder is not None and embedder.is_ready:
             try:
                 fid = vectors.add(embedder.embed([version["content"]]))[0]
-                db.set_faiss_idx(note_id, fid)
+                displaced = db.set_faiss_idx(note_id, fid)
+                if displaced is not None:
+                    # A racing reconcile stamped this note between our detach
+                    # and our stamp -- drop the loser, never leak it.
+                    vectors.remove([displaced])
                 reindex_note_chunks(db, vectors, embedder, note_id,
                                     version["title"], version["content"])
                 reindexed = True

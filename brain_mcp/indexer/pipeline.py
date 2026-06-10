@@ -71,6 +71,11 @@ def index_vault(
 
     if force:
         vectors.reset()
+        # The store is empty now: any surviving stamp is stale by definition,
+        # and the moment fresh ids get assigned (e.g. the chunks batch succeeds
+        # while the notes batch fails) stale stamps collide with them — chunk
+        # hits then map to the WRONG note. Clear stamps with the store.
+        db.clear_all_faiss_idx()
 
     for note in notes:
         if not force:
@@ -89,6 +94,16 @@ def index_vault(
             tags=note["tags"], word_count=note["word_count"],
             created_at=note["created_at"], modified_at=note["modified_at"],
         )
+        if not force:
+            # Detach-then-embed (BrainDB.clear_faiss_idx): the surviving stamp
+            # points at the OLD content's vector. Detach it NOW so a failed
+            # embed batch leaves the row retryable (faiss_idx IS NULL) instead
+            # of permanently mapped to stale content — the hash is already
+            # updated, so later runs would skip it forever. On force the store
+            # was reset and stamps bulk-cleared above.
+            old = db.clear_faiss_idx(note_id)
+            if old is not None:
+                vectors.remove([old])
         title_to_id[note["title"]] = note_id
         to_embed.append((note_id, note["content"]))
 

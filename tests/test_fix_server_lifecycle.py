@@ -378,6 +378,33 @@ def test_reconcile_keeps_indexing_active_while_model_still_loading(tmp_path):
 # Review round 2 (4): model-failed instances must let healthy siblings win
 # ---------------------------------------------------------------------------
 
+def test_promotion_loop_consults_backoff_gate(tmp_path, monkeypatch):
+    """Pin the CALL-SITE, not just the helper: _promotion_loop must consult
+    _should_attempt_promotion and skip the acquire when it says no — a
+    surgical removal of only the loop's check would otherwise slip past the
+    helper-logic test below."""
+    monkeypatch.setattr(server, "WRITER_PROMOTE_INTERVAL", 0.02)
+    embedder = StubEmbedder(ready=True)
+    state = _make_state(tmp_path, embedder=embedder, is_writer=False, with_vault=False)
+    calls = []
+
+    def gate(st, cycle):
+        calls.append(cycle)
+        return False
+
+    monkeypatch.setattr(server, "_should_attempt_promotion", gate)
+    lock = WriterLock(tmp_path / "writer.lock")
+    promo = threading.Thread(target=_promotion_loop, args=(state, lock), daemon=True)
+    promo.start()
+    try:
+        _wait_for(lambda: len(calls) >= 3, msg="loop consults the back-off gate")
+        assert state.is_writer is False, \
+            "gate=False must prevent the acquire entirely (lock was free!)"
+    finally:
+        state._shut_done = True
+        promo.join(timeout=5)
+
+
 def test_promotion_backoff_prefers_healthy_siblings(tmp_path):
     embedder = StubEmbedder(ready=True)
     state = _make_state(tmp_path, embedder=embedder, is_writer=False, with_vault=False)

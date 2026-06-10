@@ -4,7 +4,18 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from brain_mcp.curation.cli import main
+
+
+@pytest.fixture(autouse=True)
+def _isolated_data_dir(tmp_path, monkeypatch):
+    """cmd_analyze's load_config() reads (and mkdirs!) the real ~/.gystc
+    otherwise -- these tests only passed because the developer's real
+    exclude_dirs happened not to match the tmp vault."""
+    monkeypatch.setenv("BRAIN_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("BRAIN_VAULT_PATH", raising=False)
 
 
 def _vault(tmp_path: Path) -> Path:

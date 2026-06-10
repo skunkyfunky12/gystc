@@ -137,6 +137,13 @@ def _handle_file_change(state: BrainState, path: str, event_type: str) -> None:
         tags=note["tags"], word_count=note["word_count"],
         created_at=note["created_at"], modified_at=note["modified_at"],
     )
+    # Detach-then-embed: the surviving stamp (COALESCE) points at the OLD
+    # content's vector. Detach it before embedding so a failed embed leaves
+    # the row retryable (faiss_idx IS NULL) instead of permanently stale-mapped
+    # (the new hash already matches, so future events would skip it forever).
+    old = state.db.clear_faiss_idx(note_id)
+    if old is not None:
+        state.vectors.remove([old])
     if not state.embedder.is_ready:
         return
     try:

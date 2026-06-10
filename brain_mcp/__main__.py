@@ -52,9 +52,14 @@ def cmd_index(args):
     # the DB keeps our ids -> persistently wrong search results. Abort instead.
     lock = WriterLock(config.data_dir / "writer.lock")
     if not lock.acquire():
-        print("ERROR: a GYSTC server/daemon currently owns the index (writer.lock held). "
-              "Stop it first (or let it reconcile on its own), then re-run "
-              "`python -m brain_mcp index`.", file=sys.stderr)
+        if lock.open_failed:
+            print("ERROR: could not open writer.lock (permissions/AV scanner?): "
+                  f"{lock.open_error}. Aborting instead of risking a concurrent "
+                  "rebuild against a live server.", file=sys.stderr)
+        else:
+            print("ERROR: a GYSTC server/daemon currently owns the index (writer.lock held). "
+                  "Stop it first (or let it reconcile on its own), then re-run "
+                  "`python -m brain_mcp index`.", file=sys.stderr)
         sys.exit(1)
 
     db = None
@@ -90,8 +95,9 @@ def cmd_index(args):
             else:
                 kept = "previous index.faiss left untouched"
             print(f"ERROR: embedding failed: {embedder.error}. {kept}; "
-                  "rows without a vector keep faiss_idx=NULL and are retried "
-                  "on the next run.", file=sys.stderr)
+                  "affected rows keep faiss_idx=NULL and are re-embedded on the "
+                  "next run (after a failed --force, re-run with --force).",
+                  file=sys.stderr)
             sys.exit(1)
         if count == 0:
             print("No new/changed notes to embed.", file=sys.stderr)
