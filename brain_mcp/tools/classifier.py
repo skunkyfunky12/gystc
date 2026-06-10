@@ -58,13 +58,9 @@ _PATH_PREFIX_TO_REGION: list[tuple[str, int]] = [
 ]
 
 # Paths where folder-based classification is SKIPPED (use keywords instead).
-# Graphify output contains code-level nodes that need per-note classification.
-_PATH_SKIP_PREFIXES: list[str] = [
-    "02 Projekte/Neural Brain Graph/",
-    "02 Projekte/D2D-Scout Graph/",
-    "02 Projekte/Neural Brain/graphify/",
-    "02 Projekte/D2D-Scout/graphify/",
-]
+# Graphify output contains code-level nodes that need per-note classification:
+# any "<Project> Graph/" folder or a "graphify/" subfolder.
+_PATH_SKIP_RE = re.compile(r"(?:^|/)[^/]+ Graph/|(?:^|/)graphify/")
 
 # ---------------------------------------------------------------------------
 # Title patterns for graphify code-nodes
@@ -315,7 +311,7 @@ def classify_region(title: str, content: str, *, path: str | None = None) -> int
     # --- Layer 1: Path-based classification ---
     if path:
         path_norm = path.replace("\\", "/")
-        skip = any(path_norm.startswith(p) for p in _PATH_SKIP_PREFIXES)
+        skip = bool(_PATH_SKIP_RE.search(path_norm))
         if not skip:
             for prefix, region_idx in _PATH_PREFIX_TO_REGION:
                 if path_norm.startswith(prefix):

@@ -25,11 +25,15 @@ PATTERNS = [
     ("Secret assignment",    re.compile(
         r"""(?i)(api[_-]?key|secret|token|passwd|password|access[_-]?key|private[_-]?key|encryption[_-]?key)"""
         r"""\s*[:=]\s*['"][A-Za-z0-9_\-/+=.]{16,}['"]""")),
+    # Personal data: absolute user-home paths leak the machine's username.
+    ("User-home path",       re.compile(
+        r"""(?i)\b[a-z]:[\\/]+users[\\/]+(?!public\b)[^\\/\s'"]+|/home/(?!user\b)[^/\s'"]+""")),
 ]
 
 # Lines that are clearly NOT real secrets (placeholders, env-var indirection, key NAMES).
 ALLOW = re.compile(
     r"""(?i)(example|placeholder|your[_-]?key|dummy|changeme|redacted|xxxx|<[^>]+>|"""
+    r"""%[A-Z_]+%|/path/to|[\\/]Vaults[\\/]|/home/user\b|"""
     r"""\$\{?[A-Z_]+\}?|process\.env|os\.environ|getenv|import\.meta\.env|"""
     r"""\.get\(|\.text\(\)|input\(|=\s*['"]['"])"""
 )
@@ -46,6 +50,8 @@ def staged_files() -> list[str]:
 def scan(paths: list[str]) -> list[tuple[str, int, str, str]]:
     findings: list[tuple[str, int, str, str]] = []
     for path in paths:
+        if path.replace("\\", "/").endswith("scripts/check_secrets.py"):
+            continue  # the pattern file itself — regexes look like what they hunt
         if path.endswith((".png", ".jpg", ".jpeg", ".ico", ".icns", ".svg",
                           ".faiss", ".db", ".zip", ".dmg", ".mp4", ".woff", ".woff2")):
             continue

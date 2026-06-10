@@ -9,7 +9,7 @@ Usage:
     python autolink_graphify.py <vault_path> <project_subfolder>
 
 Example:
-    python autolink_graphify.py "%USERPROFILE%/.../Claude Brain" "02 Projekte/D2D-Scout"
+    python autolink_graphify.py "/path/to/vault" "02 Projekte/MeinProjekt"
 """
 import json
 import re

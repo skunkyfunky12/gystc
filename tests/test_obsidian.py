@@ -22,8 +22,8 @@ def test_build_open_url_strips_vault_prefix():
     from integrations.obsidian import build_open_url
 
     url = build_open_url(
-        "%USERPROFILE%/Desktop/REDACTED/Claude Stuff/Claude Brain Vault/Claude Brain/02 Projekte/test.md",
-        vault_path="%USERPROFILE%/Desktop/REDACTED/Claude Stuff/Claude Brain Vault/Claude Brain",
+        "C:/Vaults/Demo Vault/Claude Brain/02 Projekte/test.md",
+        vault_path="C:/Vaults/Demo Vault/Claude Brain",
     )
     assert "02%20Projekte/test.md" in url
     assert "C:" not in url
