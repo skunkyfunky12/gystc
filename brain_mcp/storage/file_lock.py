@@ -4,6 +4,12 @@ Used to elect a single "writer" GYSTC instance that owns index.faiss and the
 faiss_idx column. Other instances run read-only. The OS releases the lock when
 the holding process exits (even via os._exit or a crash), so a dead writer
 never blocks a future one.
+
+Tradeoff: if the lock file cannot even be opened (ACL/AV/read-only data dir),
+acquire() fails CLOSED -- the instance stays a reader and retries via the
+promotion loop. A vault that temporarily doesn't index beats two instances
+both assuming the writer role and silently clobbering the FAISS index (the
+historical dual-writer corruption this lock exists to prevent).
 """
 from __future__ import annotations
 
@@ -24,12 +30,19 @@ class WriterLock:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._fd = os.open(str(self._path), os.O_RDWR | os.O_CREAT, 0o644)
         except OSError as exc:
-            # Can't even open the lock file -> fail open (behave as writer) so a
-            # single instance still indexes; better than silently never indexing.
-            print(f"writer-lock: open failed ({exc}); assuming writer role", file=sys.stderr)
+            # Can't even open the lock file -> fail CLOSED (stay a reader).
+            # Failing open here let two instances both believe they were the
+            # writer and clobber index.faiss/faiss_idx; silent index corruption
+            # is strictly worse than an instance that doesn't index (the
+            # promotion loop keeps retrying acquire() every ~20s anyway).
+            print(
+                f"writer-lock: open failed ({exc}); failing CLOSED -> running "
+                "read-only, will retry via promotion loop",
+                file=sys.stderr,
+            )
             self._fd = None
-            self._held = True
-            return True
+            self._held = False
+            return False
 
         try:
             if os.name == "nt":

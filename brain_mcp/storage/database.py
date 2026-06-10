@@ -2,10 +2,30 @@
 from __future__ import annotations
 import json
 import sqlite3
+import sys
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from brain_mcp.storage.migrations import run_migrations
+
+# Copies a pruned note's version history into the tombstone table BEFORE the
+# ON DELETE CASCADE destroys it (archive via curation must never wipe
+# brain_versions history). Dedupes on (path, content_hash) so repeated
+# prune/re-add cycles don't accumulate duplicates.
+_TOMBSTONE_VERSIONS_SQL = """
+    INSERT INTO archived_note_versions
+        (path, note_id, content_hash, content, title, region_idx,
+         tags, word_count, versioned_at, reason, archived_at)
+    SELECT ?, nv.note_id, nv.content_hash, nv.content, nv.title,
+           nv.region_idx, nv.tags, nv.word_count, nv.versioned_at,
+           nv.reason, ?
+    FROM note_versions nv
+    WHERE nv.note_id = ?
+      AND NOT EXISTS (
+        SELECT 1 FROM archived_note_versions a
+        WHERE a.path = ? AND a.content_hash = nv.content_hash)
+"""
 
 
 class BrainDB:
@@ -16,6 +36,11 @@ class BrainDB:
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.execute("PRAGMA wal_autocheckpoint=1000")
+        # WAL + synchronous=NORMAL: commits no longer fsync the WAL each time
+        # (the default FULL made every per-row commit an fsync -> multi-second
+        # startup storms). Still crash-safe; at worst the last commit is lost
+        # on POWER loss, and brain.db is derived from the vault on disk.
+        self._conn.execute("PRAGMA synchronous=NORMAL")
         self._lock = threading.RLock()
         self._closed = False
         run_migrations(self._conn)
@@ -68,6 +93,23 @@ class BrainDB:
             )
             row = self._conn.execute("SELECT id FROM notes WHERE path=?", (path,)).fetchone()
             note_id = row["id"]
+            if old is None:
+                # A note re-appearing at a previously pruned path (e.g. moved
+                # back out of the archive) gets its preserved history back --
+                # see delete_notes_not_in / delete_note (tombstone table).
+                restored = self._conn.execute(
+                    """INSERT INTO note_versions
+                           (note_id, content_hash, content, title, region_idx,
+                            tags, word_count, versioned_at, reason)
+                       SELECT ?, content_hash, content, title, region_idx,
+                              tags, word_count, versioned_at, reason
+                       FROM archived_note_versions WHERE path=?""",
+                    (note_id, path),
+                )
+                if restored.rowcount > 0:
+                    self._conn.execute(
+                        "DELETE FROM archived_note_versions WHERE path=?", (path,)
+                    )
             # FTS sync for external-content FTS5:
             # Use special 'delete' command with OLD content, then INSERT new content
             if old is not None:
@@ -138,6 +180,19 @@ class BrainDB:
                                (faiss_idx, datetime.now(timezone.utc).isoformat(), note_id))
             self._conn.commit()
 
+    def set_faiss_indices(self, items: list[tuple[int, int]]) -> None:
+        """Batch variant of :meth:`set_faiss_idx` (``(note_id, faiss_idx)``):
+        one transaction instead of one commit (= WAL write) per note."""
+        if not items:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            self._conn.executemany(
+                "UPDATE notes SET faiss_idx=?, embedded_at=? WHERE id=?",
+                [(fid, now, note_id) for note_id, fid in items],
+            )
+            self._conn.commit()
+
     def get_note_by_path(self, path: str) -> sqlite3.Row | None:
         with self._lock:
             return self._conn.execute("SELECT * FROM notes WHERE path=?", (path,)).fetchone()
@@ -187,11 +242,19 @@ class BrainDB:
         with self._lock:
             row = self.get_note_by_path(path)
             if row:
+                # Preserve version history before the CASCADE destroys it (the
+                # watcher fires delete+create on every rename/move).
+                now = datetime.now(timezone.utc).isoformat()
+                self._conn.execute(_TOMBSTONE_VERSIONS_SQL, (path, now, row["id"], path))
                 self._conn.execute("INSERT INTO notes_fts(notes_fts, rowid, title, content) VALUES('delete', ?, ?, ?)",
                                    (row["id"], row["title"], row["content"]))
                 self._conn.execute("DELETE FROM edges WHERE source_id=? OR target_id=?", (row["id"], row["id"]))
                 self._conn.execute("DELETE FROM notes WHERE id=?", (row["id"],))
                 self._conn.commit()
+
+    def get_all_note_paths(self) -> list[str]:
+        with self._lock:
+            return [r["path"] for r in self._conn.execute("SELECT path FROM notes").fetchall()]
 
     def delete_notes_not_in(self, keep_paths: set[str]) -> list[int]:
         """Delete every note whose path is not in *keep_paths* and return the
@@ -201,9 +264,12 @@ class BrainDB:
         Used by a (re)build to prune notes that vanished from the scan -- e.g.
         deleted on disk or moved into a newly-excluded directory.  Without this,
         a force-rebuild leaves orphan rows whose stale ``faiss_idx`` collide
-        with freshly assigned ids -> corrupt search results.  Chunks, edges and
-        versions are removed via ``ON DELETE CASCADE``; the external-content FTS
-        mirror is kept in sync explicitly (FTS5 does not auto-delete).
+        with freshly assigned ids -> corrupt search results.  Chunks and edges
+        are removed via ``ON DELETE CASCADE``; the external-content FTS mirror
+        is kept in sync explicitly (FTS5 does not auto-delete).  Version
+        history is NOT destroyed: it is copied into ``archived_note_versions``
+        (keyed by path) before the cascade fires and re-attached by
+        ``upsert_note`` when a note returns at the same path (un-archive).
         """
         with self._lock:
             rows = self._conn.execute(
@@ -212,6 +278,8 @@ class BrainDB:
             stale = [r for r in rows if r["path"] not in keep_paths]
             if not stale:
                 return []
+            now = datetime.now(timezone.utc).isoformat()
+            preserved = 0
             faiss_ids: list[int] = []
             for r in stale:
                 if r["faiss_idx"] is not None:
@@ -221,6 +289,11 @@ class BrainDB:
                     (r["id"],),
                 ).fetchall()
                 faiss_ids.extend(c["faiss_idx"] for c in chunk_rows)
+                cur = self._conn.execute(
+                    _TOMBSTONE_VERSIONS_SQL, (r["path"], now, r["id"], r["path"])
+                )
+                if cur.rowcount > 0:
+                    preserved += 1
                 self._conn.execute(
                     "INSERT INTO notes_fts(notes_fts, rowid, title, content) VALUES('delete', ?, ?, ?)",
                     (r["id"], r["title"], r["content"]),
@@ -231,6 +304,12 @@ class BrainDB:
                 f"DELETE FROM notes WHERE id IN ({placeholders})", tuple(ids)
             )
             self._conn.commit()
+            if preserved:
+                print(
+                    f"reconcile: pruned {len(stale)} notes; version history of "
+                    f"{preserved} preserved in archived_note_versions",
+                    file=sys.stderr,
+                )
             return faiss_ids
 
     def upsert_edge(self, source_id: int, target_id: int, link_text: str = "",
@@ -245,6 +324,27 @@ class BrainDB:
                      weight=excluded.weight, confidence=excluded.confidence,
                      source_file=excluded.source_file""",
                 (source_id, target_id, link_text, edge_type, weight, confidence, source_file),
+            )
+            self._conn.commit()
+
+    def upsert_edges(self, edges: list[tuple[int, int, str]]) -> None:
+        """Batch upsert of backlink edges ``(source_id, target_id, link_text)``.
+
+        One transaction/commit for the whole batch -- index_vault used to call
+        :meth:`upsert_edge` per backlink, i.e. one WAL commit PER EDGE on every
+        writer startup (a multi-second fsync storm on large vaults).
+        """
+        if not edges:
+            return
+        with self._lock:
+            self._conn.executemany(
+                """INSERT INTO edges (source_id, target_id, link_text, edge_type, weight, confidence, source_file)
+                   VALUES (?, ?, ?, 'backlink', 1.0, NULL, '')
+                   ON CONFLICT(source_id, target_id) DO UPDATE SET
+                     link_text=excluded.link_text, edge_type=excluded.edge_type,
+                     weight=excluded.weight, confidence=excluded.confidence,
+                     source_file=excluded.source_file""",
+                edges,
             )
             self._conn.commit()
 
@@ -312,17 +412,27 @@ class BrainDB:
 
     def fts_search(self, query: str, limit: int = 10) -> list[sqlite3.Row]:
         safe_query = self._sanitize_fts_query(query)
-        with self._lock:
-            try:
-                return self._conn.execute(
-                    """SELECT n.*, rank FROM notes_fts
-                       JOIN notes n ON n.id = notes_fts.rowid
-                       WHERE notes_fts MATCH ?
-                       ORDER BY rank LIMIT ?""",
-                    (safe_query, limit),
-                ).fetchall()
-            except sqlite3.OperationalError:
-                return []
+        for attempt in (1, 2):
+            with self._lock:
+                try:
+                    return self._conn.execute(
+                        """SELECT n.*, rank FROM notes_fts
+                           JOIN notes n ON n.id = notes_fts.rowid
+                           WHERE notes_fts MATCH ?
+                           ORDER BY rank LIMIT ?""",
+                        (safe_query, limit),
+                    ).fetchall()
+                except sqlite3.OperationalError as exc:
+                    # NEVER swallow silently: 'database is locked' or a
+                    # missing/corrupt notes_fts table would otherwise read as
+                    # "the brain has no memory of this" (FTS is the only
+                    # search path while the model loads).
+                    if attempt == 1 and "locked" in str(exc).lower():
+                        time.sleep(0.1)  # one short retry for transient lock contention
+                        continue
+                    print(f"fts_search failed (query={query!r}): {exc}", file=sys.stderr)
+                    return []
+        return []
 
     def get_recent_notes(self, days: int = 7, region_idx: int | None = None, limit: int = 20) -> list[sqlite3.Row]:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
@@ -396,6 +506,18 @@ class BrainDB:
             )
             self._conn.commit()
 
+    def set_chunk_faiss_indices(self, items: list[tuple[int, int, int]]) -> None:
+        """Batch variant of :meth:`set_chunk_faiss_idx`
+        (``(note_id, chunk_idx, faiss_idx)``): one commit per batch, not per chunk."""
+        if not items:
+            return
+        with self._lock:
+            self._conn.executemany(
+                "UPDATE chunks SET faiss_idx=? WHERE note_id=? AND chunk_idx=?",
+                [(fid, note_id, chunk_idx) for note_id, chunk_idx, fid in items],
+            )
+            self._conn.commit()
+
     def get_chunks_for_note(self, note_id: int) -> list[sqlite3.Row]:
         with self._lock:
             return self._conn.execute(
@@ -417,13 +539,15 @@ class BrainDB:
 
     def delete_chunks_for_note(self, note_id: int) -> list[int]:
         with self._lock:
-            old_faiss = [
-                r["faiss_idx"] for r in
-                self._conn.execute(
-                    "SELECT faiss_idx FROM chunks WHERE note_id=? AND faiss_idx IS NOT NULL",
-                    (note_id,),
-                ).fetchall()
-            ]
+            rows = self._conn.execute(
+                "SELECT faiss_idx FROM chunks WHERE note_id=?", (note_id,)
+            ).fetchall()
+            if not rows:
+                # Nothing to delete -> no commit. The reconcile calls this for
+                # every chunkless note on every startup; an unconditional
+                # commit here was one WAL write per note.
+                return []
+            old_faiss = [r["faiss_idx"] for r in rows if r["faiss_idx"] is not None]
             self._conn.execute("DELETE FROM chunks WHERE note_id=?", (note_id,))
             self._conn.commit()
             return old_faiss

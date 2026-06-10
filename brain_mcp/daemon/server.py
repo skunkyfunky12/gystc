@@ -1,7 +1,7 @@
 from __future__ import annotations
 import hmac, secrets, socket, sys
 from typing import Callable
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 
 MAX_BODY_BYTES = 8 * 1024 * 1024  # /mcp request-body cap (note-content cap is 1 MB)
@@ -15,27 +15,103 @@ def _idle_expired(last_activity: float, now: float, idle_timeout: float) -> bool
 def build_guard_middleware(token: str, allowed_origins: list[str],
                            max_body: int = MAX_BODY_BYTES,
                            on_request: Callable[[], None] | None = None):
-    class Guard(BaseHTTPMiddleware):
-        async def dispatch(self, request, call_next):
-            origin = request.headers.get("origin")
+    # Pure ASGI middleware (not BaseHTTPMiddleware) so requests WITHOUT a
+    # Content-Length (e.g. Transfer-Encoding: chunked) can be read under an
+    # explicit byte budget and replayed downstream. Trusting the header alone
+    # let a token-holder stream an unbounded chunked body past the cap.
+    class Guard:
+        def __init__(self, app):
+            self.app = app
+
+        async def __call__(self, scope, receive, send):
+            if scope["type"] != "http":
+                await self.app(scope, receive, send)
+                return
+            headers = Headers(scope=scope)
+            origin = headers.get("origin")
             if origin is not None and origin not in allowed_origins:
-                return JSONResponse({"error": "forbidden origin"}, status_code=403)
-            auth = request.headers.get("authorization", "")
+                await JSONResponse({"error": "forbidden origin"}, status_code=403)(scope, receive, send)
+                return
+            auth = headers.get("authorization", "")
             if not (auth and hmac.compare_digest(auth, f"Bearer {token}")):
-                return JSONResponse({"error": "unauthorized"}, status_code=401)
+                await JSONResponse({"error": "unauthorized"}, status_code=401)(scope, receive, send)
+                return
             # Bound the body so a token-holder can't OOM the shared daemon.
-            cl = request.headers.get("content-length")
+            cl = headers.get("content-length")
             if cl is not None:
                 try:
                     over = int(cl) > max_body
                 except ValueError:
-                    return JSONResponse({"error": "bad content-length"}, status_code=400)
+                    await JSONResponse({"error": "bad content-length"}, status_code=400)(scope, receive, send)
+                    return
                 if over:
-                    return JSONResponse({"error": "payload too large"}, status_code=413)
+                    await JSONResponse({"error": "payload too large"}, status_code=413)(scope, receive, send)
+                    return
+                if on_request is not None:
+                    on_request()  # authorized request -> reset the idle timer
+                # The server enforces Content-Length framing, so pass through.
+                await self.app(scope, receive, send)
+                return
+            # No Content-Length: read at most max_body bytes (+1 triggers the
+            # reject), 413 on oversize, then replay the buffered body downstream.
+            body = bytearray()
+            while True:
+                message = await receive()
+                if message["type"] == "http.disconnect":
+                    return  # client gone; nothing to answer
+                body.extend(message.get("body", b""))
+                if len(body) > max_body:
+                    await JSONResponse({"error": "payload too large"}, status_code=413)(scope, receive, send)
+                    return
+                if not message.get("more_body", False):
+                    break
             if on_request is not None:
                 on_request()  # authorized request -> reset the idle timer
-            return await call_next(request)
+            replayed = False
+
+            async def replay():
+                nonlocal replayed
+                if not replayed:
+                    replayed = True
+                    return {"type": "http.request", "body": bytes(body), "more_body": False}
+                return await receive()
+
+            await self.app(scope, replay, send)
     return Guard
+
+
+class _ReleaseLockOnShutdown:
+    """ASGI lifespan wrapper: release `lock` the moment teardown begins.
+
+    The daemon's slow teardown (watcher/reindexer joins, FAISS save) runs inside
+    the inner lifespan shutdown and can take seconds. Releasing daemon.lock
+    BEFORE forwarding the shutdown message lets a replacement daemon win the
+    lock immediately instead of losing the race against a dying daemon and
+    exiting unregistered (idle-shutdown vs respawn race). uvicorn has already
+    closed the listener at this point, so two daemons never accept at once.
+    """
+
+    def __init__(self, app, lock):
+        self.app = app
+        self.lock = lock
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "lifespan":
+            await self.app(scope, receive, send)
+            return
+
+        async def receive_release_first():
+            message = await receive()
+            if message["type"] == "lifespan.shutdown":
+                print("GYSTC daemon: teardown begins -> releasing daemon.lock", file=sys.stderr)
+                try:
+                    self.lock.release()
+                except OSError as exc:
+                    # OS still releases it at process exit; surface, don't hide.
+                    print(f"GYSTC daemon: daemon.lock release failed: {exc}", file=sys.stderr)
+            return message
+
+        await self.app(scope, receive_release_first, send)
 
 def free_port() -> int:
     s = socket.socket()
@@ -93,7 +169,9 @@ def run_daemon(idle_timeout: float = 1800.0) -> None:
         return JR({"ok": True, "pid": os.getpid()})
     app.router.routes.append(Route("/health", health, methods=["GET"]))
 
-    server = uvicorn.Server(uvicorn.Config(app, log_level="warning"))
+    # Release daemon.lock as soon as teardown starts (not at process exit), so
+    # a respawned daemon doesn't lose the lock race while this one drains.
+    server = uvicorn.Server(uvicorn.Config(_ReleaseLockOnShutdown(app, lock), log_level="warning"))
 
     def _idle_watch() -> None:
         interval = min(30.0, max(1.0, idle_timeout / 4))
@@ -101,7 +179,7 @@ def run_daemon(idle_timeout: float = 1800.0) -> None:
             time.sleep(interval)
             if _idle_expired(activity[0], time.monotonic(), idle_timeout):
                 print(f"GYSTC daemon idle for >{idle_timeout:.0f}s -> shutting down.", file=sys.stderr)
-                server.should_exit = True  # uvicorn stops -> lifespan finally releases the lock
+                server.should_exit = True  # uvicorn stops; daemon.lock is freed at teardown start (_ReleaseLockOnShutdown)
                 return
     if idle_timeout > 0:
         threading.Thread(target=_idle_watch, name="gystc-idle", daemon=True).start()

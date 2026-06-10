@@ -29,6 +29,11 @@ class VectorStore:
         self._index: faiss.Index = faiss.IndexIDMap2(base)
         self._lock = threading.RLock()
         self._next_id: int = 0
+        # Set by load() when an existing index file could not be read (it is
+        # deleted). Callers must then clear stale DB faiss_idx stamps: the
+        # pipeline only re-embeds rows with faiss_idx IS NULL, so without
+        # clearing nothing rebuilds and fresh ids collide with the stale ones.
+        self.corrupted_on_load: bool = False
 
     # ------------------------------------------------------------------
     # Properties
@@ -145,7 +150,11 @@ class VectorStore:
     @classmethod
     def load(cls, path: Path | str, dimension: int = 384) -> VectorStore:
         """Load an index from *path*, or return an empty store if the file
-        does not exist or is corrupted."""
+        does not exist or is corrupted.
+
+        A corrupted file is deleted and flagged via ``corrupted_on_load`` --
+        the caller must clear stale DB faiss_idx stamps (see ``brain_mcp
+        index``), otherwise nothing re-embeds and ids collide."""
         store = cls(dimension=dimension)
         path = Path(path)
         if path.exists():
@@ -158,8 +167,11 @@ class VectorStore:
                     stored_ids = faiss.vector_to_array(store._index.id_map)
                     store._next_id = int(stored_ids.max()) + 1
             except Exception as e:
+                store.corrupted_on_load = True
                 print(
-                    f"WARNING: FAISS index corrupted, rebuilding: {e}",
+                    f"WARNING: FAISS index corrupted, deleting it: {e}. "
+                    "Run `python -m brain_mcp index` to clear stale faiss_idx "
+                    "and re-embed, or existing notes stay unsearchable.",
                     file=sys.stderr,
                 )
                 path.unlink(missing_ok=True)

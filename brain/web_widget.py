@@ -170,6 +170,7 @@ def _make_web_handler(directory: Path):
             try:
                 from brain_mcp.config import load_config
                 from brain_mcp.storage.database import BrainDB
+                from brain_mcp.storage.file_lock import WriterLock
                 from brain_mcp.indexer.vector_store import VectorStore
                 from brain_mcp.indexer.embedder import SentenceTransformerBackend
                 from brain_mcp.indexer.pipeline import index_vault
@@ -179,17 +180,31 @@ def _make_web_handler(directory: Path):
                 if config.vault_path is None or not config.vault_path.is_dir():
                     self._json_response(400, {"error": "No vault_path configured"})
                     return
-                db = BrainDB(config.db_path)
+                # Single-writer invariant: only the writer.lock holder may rewrite
+                # faiss_idx / persist index.faiss (see brain_mcp/server.py). If an
+                # MCP writer instance is live, refuse instead of racing it.
+                lock = WriterLock(config.data_dir / "writer.lock")
+                if not lock.acquire():
+                    print("reindex refused: an MCP writer instance holds writer.lock", file=sys.stderr)
+                    self._json_response(409, {
+                        "error": "Index is owned by a running GYSTC MCP instance. "
+                                 "Close it (or reindex through it) and try again."
+                    })
+                    return
                 try:
-                    embedder = SentenceTransformerBackend(config.model_name)
-                    vectors = VectorStore.load(config.index_path, dimension=embedder.dimension)
-                    t0 = time.time()
-                    count = index_vault(db, vectors, embedder, config.vault_path, config.folder_to_region)
-                    vectors.save(config.index_path)
-                    elapsed = round(time.time() - t0, 1)
-                    self._json_response(200, {"indexed": count, "elapsed": elapsed})
+                    db = BrainDB(config.db_path)
+                    try:
+                        embedder = SentenceTransformerBackend(config.model_name)
+                        vectors = VectorStore.load(config.index_path, dimension=embedder.dimension)
+                        t0 = time.time()
+                        count = index_vault(db, vectors, embedder, config.vault_path, config.folder_to_region)
+                        vectors.save(config.index_path)
+                        elapsed = round(time.time() - t0, 1)
+                        self._json_response(200, {"indexed": count, "elapsed": elapsed})
+                    finally:
+                        db.close()
                 finally:
-                    db.close()
+                    lock.release()
             except Exception as e:
                 self._json_response(500, {"error": str(e)})
 
@@ -248,9 +263,18 @@ def _make_web_handler(directory: Path):
                 import urllib.parse
                 rel = urllib.parse.unquote(self.path[len("/api/vault/"):])
 
-                # Path-traversal guard (CWE-22)
-                resolved = (config.vault_path / rel).resolve()
-                if not str(resolved).startswith(str(config.vault_path.resolve())):
+                # Path-traversal guard (CWE-22): resolve() follows symlinks, so a
+                # link escaping the vault lands outside vault_root and is rejected.
+                # A string-prefix check would wrongly admit sibling dirs like
+                # "<vault> Backup" — use real path containment instead.
+                vault_root = config.vault_path.resolve()
+                try:
+                    resolved = (config.vault_path / rel).resolve()
+                    inside = resolved.is_relative_to(vault_root)
+                except (OSError, ValueError) as exc:
+                    print(f"vault file guard: cannot resolve {rel!r}: {exc}", file=sys.stderr)
+                    inside = False
+                if not inside:
                     self.send_response(403)
                     self.end_headers()
                     return
@@ -301,9 +325,36 @@ def _start_local_server(directory: Path, port: int = 0) -> tuple[HTTPServer, int
 _MAX_ACTIVITY_BODY = 65536
 
 
-def _make_activity_handler(widget_ref):
+def _make_activity_handler(widget_ref, token: str):
+    """Activity feed handler. The fixed port (9500) is reachable by any local
+    process, so writes require the per-session *token* (Authorization: Bearer)
+    that the dashboard publishes to <data_dir>/activity_token for the hook.
+    Browser-originated requests always carry an Origin header and are rejected
+    outright — the legitimate writer (urllib in activity_feed.py) never sends one.
+    """
+
     class ActivityHandler(BaseHTTPRequestHandler):
+        _warned_unauthorized = False
+
         def do_POST(self):
+            if self.headers.get("Origin") is not None:
+                self.send_response(403)
+                self.end_headers()
+                return
+            auth = self.headers.get("Authorization", "")
+            if auth != f"Bearer {token}":
+                # Warn once per session, not per rejected request (the hook
+                # fires on every tool use until it adopts the token file).
+                if not ActivityHandler._warned_unauthorized:
+                    ActivityHandler._warned_unauthorized = True
+                    print(
+                        "activity feed: rejected POST without valid session token "
+                        "(writers must send 'Authorization: Bearer <data_dir>/activity_token')",
+                        file=sys.stderr,
+                    )
+                self.send_response(401)
+                self.end_headers()
+                return
             length = int(self.headers.get("Content-Length", 0))
             if length > _MAX_ACTIVITY_BODY:
                 self.send_response(413)
@@ -364,8 +415,19 @@ class BrainWebWidget(QWebEngineView):
         self._setup_page()
 
     def _start_activity_server(self):
+        import secrets
         import weakref
-        handler_cls = _make_activity_handler(weakref.ref(self))
+        # Per-session write token: published to <data_dir>/activity_token so the
+        # local hook (brain_mcp/hooks/activity_feed.py) can read it; any process
+        # that cannot read that file cannot inject lines into the terminal.
+        token = secrets.token_hex(16)
+        try:
+            from brain_mcp.config import load_config
+            token_path = load_config().data_dir / "activity_token"
+            token_path.write_text(token, encoding="utf-8")
+        except Exception as exc:
+            print(f"activity feed: could not publish session token: {exc}", file=sys.stderr)
+        handler_cls = _make_activity_handler(weakref.ref(self), token)
         try:
             self._activity_server = HTTPServer(("127.0.0.1", ACTIVITY_PORT), handler_cls)
             thread = threading.Thread(target=self._activity_server.serve_forever, daemon=True)

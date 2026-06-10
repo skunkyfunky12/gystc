@@ -3,6 +3,7 @@ reversible (`git revert`). No remote, ever. Secrets (.obsidian) never tracked.""
 from __future__ import annotations
 
 import subprocess
+import sys
 from datetime import date
 from pathlib import Path
 
@@ -19,8 +20,18 @@ def _git(vault: Path, *args: str, check: bool = True) -> subprocess.CompletedPro
 
 
 def is_repo(vault: Path) -> bool:
-    r = _git(vault, "rev-parse", "--is-inside-work-tree", check=False)
-    return r.returncode == 0 and r.stdout.strip() == "true"
+    """True only if the vault itself is the repo ROOT. A vault merely nested in
+    an enclosing repo must NOT count: init/snapshot/secret-gitignore would be
+    silently skipped and `git add -A` would sweep the whole parent worktree."""
+    r = _git(vault, "rev-parse", "--show-toplevel", check=False)
+    top = r.stdout.strip()
+    if r.returncode != 0 or not top:
+        return False
+    try:
+        return Path(top).resolve() == Path(vault).resolve()
+    except OSError as e:  # unresolvable path: treat as 'not the vault's repo', loudly
+        print(f"WARNING: is_repo: cannot resolve {top!r} vs {vault}: {e}", file=sys.stderr)
+        return False
 
 
 def head_sha(vault: Path) -> str | None:
@@ -28,13 +39,16 @@ def head_sha(vault: Path) -> str | None:
     return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
 
 
-def _ensure_secret_gitignore(vault: Path) -> None:
-    """Guarantee secrets/trash/derived are ignored BEFORE staging anything."""
+def _ensure_secret_gitignore(vault: Path) -> bool:
+    """Guarantee secrets/trash/derived are ignored BEFORE staging anything.
+    Returns True if .gitignore was modified. Matches line-wise (stripped), so a
+    commented-out '#.obsidian/' or negated '!.obsidian/' never counts as present."""
     gi = vault / ".gitignore"
     existing = gi.read_text(encoding="utf-8") if gi.exists() else ""
-    missing = [p for p in _REQUIRED_IGNORES if p not in existing]
+    existing_lines = {ln.strip() for ln in existing.splitlines()}
+    missing = [p for p in _REQUIRED_IGNORES if p not in existing_lines]
     if not missing:
-        return
+        return False
     sep = "" if (not existing or existing.endswith("\n")) else "\n"
     gi.write_text(
         existing + sep
@@ -42,6 +56,7 @@ def _ensure_secret_gitignore(vault: Path) -> None:
         + "\n".join(missing) + "\n",
         encoding="utf-8",
     )
+    return True
 
 
 def _ensure_identity(vault: Path) -> None:
@@ -67,11 +82,32 @@ def ensure_vault_repo(vault: Path, *, snapshot_message: str | None = None) -> di
     return {"status": "initialized", "commit": head_sha(vault)}
 
 
-def commit_run(vault: Path, message: str) -> str | None:
+def commit_run(vault: Path, message: str, paths: list[str] | None = None) -> str | None:
     """Commit one curation run's changes. Returns the sha, or None if nothing changed.
-    Local-only; never pushes."""
+    Local-only; never pushes.
+
+    `paths`: the exact files the run touched. When given, ONLY those are staged —
+    unrelated concurrent vault edits stay out, so `git revert <sha>` is surgical.
+    None = stage the whole vault (explicit full-snapshot use only)."""
     vault = Path(vault)
-    _git(vault, "add", "-A")
+    # Re-assert secret protection: the 'already a repo' init path never ran it.
+    gi_changed = _ensure_secret_gitignore(vault)
+    if paths is None:
+        _git(vault, "add", "-A")
+    else:
+        specs: list[str] = []
+        for rel in dict.fromkeys(paths):  # de-dupe, keep order
+            # A pathspec matching nothing makes `git add` fail: keep a path only
+            # if it exists on disk or is tracked (deletion to stage).
+            if (vault / rel).exists() or _git(vault, "ls-files", "--", rel, check=False).stdout.strip():
+                specs.append(rel)
+            else:
+                print(f"WARNING: commit_run: skipping unknown path: {rel}", file=sys.stderr)
+        if gi_changed:
+            specs.append(".gitignore")
+        if not specs:
+            return None  # nothing touched
+        _git(vault, "add", "-A", "--", *specs)
     if _git(vault, "diff", "--cached", "--quiet", check=False).returncode == 0:
         return None  # nothing staged
     _ensure_identity(vault)

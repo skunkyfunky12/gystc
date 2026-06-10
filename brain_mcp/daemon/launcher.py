@@ -44,7 +44,7 @@ def wait_until_alive(info: DaemonInfo, deadline_s: float = 12.0) -> bool:
     return False
 
 
-def _spawn_detached() -> None:
+def _spawn_detached() -> subprocess.Popen:
     kwargs = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                   stderr=subprocess.DEVNULL, close_fds=True)
     if os.name == "nt":
@@ -53,7 +53,7 @@ def _spawn_detached() -> None:
                                    | subprocess.CREATE_NO_WINDOW)
     else:
         kwargs["start_new_session"] = True
-    subprocess.Popen([sys.executable, "-m", "brain_mcp", "daemon"], **kwargs)
+    return subprocess.Popen([sys.executable, "-m", "brain_mcp", "daemon"], **kwargs)
 
 
 def ensure_daemon(data_dir: Path):
@@ -65,20 +65,32 @@ def ensure_daemon(data_dir: Path):
         return info
     # Serialize starters so two proxies don't both spawn a daemon.
     start_lock = WriterLock(data_dir / "daemon-start.lock")
-    spawned = False
+    proc = None
     if start_lock.acquire():
         info = read_registry(reg)
         if info is None or not is_alive(info):
-            _spawn_detached()
-            spawned = True
+            proc = _spawn_detached()
     try:
         end = time.monotonic() + 15.0
+        retry_delay = 0.3
         while time.monotonic() < end:
             info = read_registry(reg)
             if info is not None and is_alive(info):
                 return info
+            # Our spawn can lose the daemon.lock race against a daemon that is
+            # still tearing down (idle shutdown) and exit without registering.
+            # Retry with backoff inside the window instead of giving up.
+            if proc is not None and proc.poll() is not None:
+                print(f"launcher: spawned daemon exited before registering "
+                      f"(rc={proc.returncode}); retrying in {retry_delay:.1f}s", file=sys.stderr)
+                time.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 2.0)
+                proc = _spawn_detached()
             time.sleep(0.15)
         info = read_registry(reg)
-        return info if (info is not None and is_alive(info)) else None
+        if info is not None and is_alive(info):
+            return info
+        print("launcher: no live daemon after 15s; giving up", file=sys.stderr)
+        return None
     finally:
         start_lock.release()

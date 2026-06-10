@@ -25,6 +25,7 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
+    "pytest-timeout>=2.1",
 ]
 dashboard = [
     "PyQt6",
@@ -38,4 +39,7 @@ include = ["brain_mcp*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Hang-guard: this codebase's bug history is dominated by hang classes, so a
+# deadlocked test must fail loudly instead of freezing the suite forever.
+timeout = 120
 markers = ["slow: spawns real daemon/proxy subprocesses (deselect with -m 'not slow')"]

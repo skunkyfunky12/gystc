@@ -32,12 +32,40 @@ def index_vault(
 
     # Prune notes that vanished from the scan (deleted on disk OR moved into a
     # now-excluded dir). Otherwise a rebuild leaves orphan rows whose stale
-    # faiss_idx collide with freshly assigned ids -> corrupt search. Fail-safe:
-    # never prune on an empty scan, so a transient scan glitch can't wipe the
-    # whole brain.
+    # faiss_idx collide with freshly assigned ids -> corrupt search. Fail-safes:
+    # - never prune on an empty scan, so a transient scan glitch can't wipe the
+    #   whole brain;
+    # - a note absent from the scan whose file still EXISTS on disk (and is not
+    #   excluded) was dropped by a transient read error -> keep it and log,
+    #   because deleting would CASCADE its version history away.
     scanned_paths = {note["path"] for note in notes}
     if scanned_paths:
-        stale_faiss = db.delete_notes_not_in(scanned_paths)
+        excluded = {d.casefold() for d in (exclude_dirs or [])}
+        keep_paths = set(scanned_paths)
+        for db_path in db.get_all_note_paths():
+            if db_path in keep_paths:
+                continue
+            parts = Path(db_path).parts
+            intentionally_excluded = ".obsidian" in parts or (
+                excluded and not excluded.isdisjoint(p.casefold() for p in parts)
+            )
+            if intentionally_excluded:
+                continue  # excluded on purpose -> prune (history is tombstoned)
+            try:
+                still_on_disk = (vault_path / db_path).exists()
+            except OSError as exc:
+                print(f"WARNING: reconcile: cannot stat {db_path} ({exc}); keeping note",
+                      file=sys.stderr)
+                keep_paths.add(db_path)
+                continue
+            if still_on_disk:
+                print(
+                    f"WARNING: reconcile: {db_path} missing from scan but still on disk "
+                    "(transient read error?); keeping note + version history",
+                    file=sys.stderr,
+                )
+                keep_paths.add(db_path)
+        stale_faiss = db.delete_notes_not_in(keep_paths)
         if stale_faiss and not force:
             vectors.remove(stale_faiss)
 
@@ -70,14 +98,17 @@ def index_vault(
         try:
             vecs = embedder.embed(texts)
             faiss_ids = vectors.add(vecs)
-            for (note_id, _), fid in zip(to_embed, faiss_ids):
-                db.set_faiss_idx(note_id, fid)
+            db.set_faiss_indices(
+                [(note_id, fid) for (note_id, _), fid in zip(to_embed, faiss_ids)]
+            )
             elapsed = time.time() - t0
             print(f"Indexed {len(to_embed)} new/changed notes in {elapsed:.1f}s.", file=sys.stderr)
         except Exception as exc:
             print(f"Embedding error during indexing: {exc}", file=sys.stderr)
 
-    # Build edges from backlinks
+    # Build edges from backlinks (batched: one commit for the whole set -- the
+    # per-edge commit was one WAL fsync PER BACKLINK on every writer startup).
+    edge_rows: list[tuple[int, int, str]] = []
     for note in notes:
         src_id = title_to_id.get(note["title"])
         if src_id is None:
@@ -85,7 +116,8 @@ def index_vault(
         for bl_title in note.get("backlink_titles", []):
             tgt_id = title_to_id.get(bl_title)
             if tgt_id and src_id != tgt_id:
-                db.upsert_edge(src_id, tgt_id, link_text=bl_title)
+                edge_rows.append((src_id, tgt_id, bl_title))
+    db.upsert_edges(edge_rows)
 
     # --- Chunking phase ---
     chunks_to_embed: list[tuple[int, int, str]] = []  # (note_id, chunk_idx, content)
@@ -133,8 +165,10 @@ def index_vault(
         try:
             vecs = embedder.embed(texts)
             faiss_ids = vectors.add(vecs)
-            for (note_id, chunk_idx, _), fid in zip(chunks_to_embed, faiss_ids):
-                db.set_chunk_faiss_idx(note_id, chunk_idx, fid)
+            db.set_chunk_faiss_indices(
+                [(note_id, chunk_idx, fid)
+                 for (note_id, chunk_idx, _), fid in zip(chunks_to_embed, faiss_ids)]
+            )
             elapsed = time.time() - t0
             print(f"Chunked {len(chunks_to_embed)} sections in {elapsed:.1f}s.", file=sys.stderr)
         except Exception as exc:
@@ -167,5 +201,6 @@ def reindex_note_chunks(
         vectors.remove(old)
     vecs = embedder.embed([c["content"] for c in chunks])
     faiss_ids = vectors.add(vecs)
-    for chunk, fid in zip(chunks, faiss_ids):
-        db.set_chunk_faiss_idx(note_id, chunk["chunk_idx"], fid)
+    db.set_chunk_faiss_indices(
+        [(note_id, chunk["chunk_idx"], fid) for chunk, fid in zip(chunks, faiss_ids)]
+    )

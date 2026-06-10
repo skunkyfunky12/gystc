@@ -3,10 +3,48 @@ import os
 import sys
 
 
+class _EmbedFailureTracker:
+    """Wraps an embedding backend and records whether embed() ever raised.
+
+    index_vault() swallows embed exceptions (prints + continues), so the CLI
+    needs this side channel to know the run failed and must not save an empty
+    index over a good one or report success."""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self.failed = False
+        self.error = None
+
+    @property
+    def dimension(self) -> int:
+        return self._inner.dimension
+
+    def embed(self, texts):
+        try:
+            return self._inner.embed(texts)
+        except Exception as exc:
+            self.failed = True
+            self.error = exc
+            raise
+
+
+def _clear_all_faiss_idx(db) -> None:
+    """NULL every stored faiss_idx (notes + chunks) so the pipeline's
+    "re-embed faiss_idx IS NULL" reconcile rebuilds them from scratch.
+
+    Needed after index.faiss corruption: rows degrade to "unindexed"
+    (recoverable) instead of keeping stale ids that collide with freshly
+    assigned ones (wrongly-mapped search results)."""
+    db.execute("UPDATE notes SET faiss_idx=NULL, embedded_at=NULL")
+    db.execute("UPDATE chunks SET faiss_idx=NULL")
+    db.execute("COMMIT")
+
+
 def cmd_index(args):
     from pathlib import Path
     from brain_mcp.config import load_config
     from brain_mcp.storage.database import BrainDB
+    from brain_mcp.storage.file_lock import WriterLock
     from brain_mcp.indexer.vector_store import VectorStore
     from brain_mcp.indexer.embedder import SentenceTransformerBackend
     from brain_mcp.indexer.pipeline import index_vault
@@ -19,21 +57,62 @@ def cmd_index(args):
         sys.exit(1)
 
     config.data_dir.mkdir(parents=True, exist_ok=True)
-    db = BrainDB(config.db_path)
-    embedder = SentenceTransformerBackend(config.model_name)
-    vectors = VectorStore(dimension=embedder.dimension) if args.force else VectorStore.load(config.index_path, dimension=embedder.dimension)
 
-    print(f"Scanning vault: {config.vault_path}", file=sys.stderr)
+    # Single-writer election: only the writer.lock holder may touch index.faiss
+    # and the faiss_idx column. A live server/daemon keeps its own in-memory
+    # index and would clobber our fresh file within 60s (periodic save) while
+    # the DB keeps our ids -> persistently wrong search results. Abort instead.
+    lock = WriterLock(config.data_dir / "writer.lock")
+    if not lock.acquire():
+        print("ERROR: a GYSTC server/daemon currently owns the index (writer.lock held). "
+              "Stop it first (or let it reconcile on its own), then re-run "
+              "`python -m brain_mcp index`.", file=sys.stderr)
+        sys.exit(1)
+
+    db = None
     try:
+        db = BrainDB(config.db_path)
+        embedder = _EmbedFailureTracker(SentenceTransformerBackend(config.model_name))
+        if args.force:
+            vectors = VectorStore(dimension=embedder.dimension)
+        else:
+            vectors = VectorStore.load(config.index_path, dimension=embedder.dimension)
+            if vectors.corrupted_on_load:
+                # The corrupt file is gone. Without clearing, the reconcile
+                # skips every row (faiss_idx not NULL) and new ids collide
+                # with the stale ones -> wrong search results.
+                print("WARNING: index.faiss was corrupt and has been deleted; "
+                      "clearing stale faiss_idx so this run re-embeds everything.",
+                      file=sys.stderr)
+                _clear_all_faiss_idx(db)
+
+        print(f"Scanning vault: {config.vault_path}", file=sys.stderr)
         count = index_vault(db, vectors, embedder, config.vault_path,
                             config.folder_to_region, force=args.force,
                             exclude_dirs=config.exclude_dirs)
+        if embedder.failed:
+            # Embed errors are swallowed inside index_vault. Never report
+            # success, and never overwrite a good index.faiss with an empty
+            # store (--force with nothing embedded). If vectors WERE added
+            # (partial failure), save them: their ids are already stamped in
+            # the DB, so the saved file is the consistent state.
+            if vectors.size > 0:
+                vectors.save(config.index_path)
+                kept = "partial index saved; DB stays consistent"
+            else:
+                kept = "previous index.faiss left untouched"
+            print(f"ERROR: embedding failed: {embedder.error}. {kept}; "
+                  "rows without a vector keep faiss_idx=NULL and are retried "
+                  "on the next run.", file=sys.stderr)
+            sys.exit(1)
         if count == 0:
             print("No new/changed notes to embed.", file=sys.stderr)
         vectors.save(config.index_path)
         print(f"Done. Index: {config.index_path} | DB: {config.db_path}", file=sys.stderr)
     finally:
-        db.close()
+        if db is not None:
+            db.close()
+        lock.release()
 
 
 def cmd_serve(args):
@@ -94,7 +173,11 @@ def cmd_config(args):
             try:
                 from brain_mcp.indexer.vector_store import VectorStore
                 vs = VectorStore.load(config.index_path, dimension=384)
-                print(f"  Index: {config.index_path} ({vs.size} vectors)")
+                if vs.corrupted_on_load:
+                    print(f"  Index: {config.index_path} (was corrupt -- deleted; "
+                          "run `python -m brain_mcp index` to rebuild)")
+                else:
+                    print(f"  Index: {config.index_path} ({vs.size} vectors)")
             except Exception as e:
                 print(f"  Index: {config.index_path} (error reading: {e})")
         else:
@@ -230,23 +313,43 @@ def cmd_config(args):
         build = input("\n4. Build index now? [Y/n] ").strip().lower()
         if build != "n":
             from brain_mcp.storage.database import BrainDB
+            from brain_mcp.storage.file_lock import WriterLock
             from brain_mcp.indexer.vector_store import VectorStore
             from brain_mcp.indexer.embedder import SentenceTransformerBackend
             from brain_mcp.indexer.pipeline import index_vault
             import time
 
-            db = BrainDB(config.db_path)
-            embedder = SentenceTransformerBackend(config.model_name)
-            vectors = VectorStore.load(config.index_path, dimension=embedder.dimension)
-            t0 = time.time()
+            # Same single-writer rule as `brain_mcp index`: never rebuild
+            # while a live server/daemon owns index.faiss.
+            lock = WriterLock(config.data_dir / "writer.lock")
+            if not lock.acquire():
+                print("ERROR: a GYSTC server/daemon currently owns the index (writer.lock held). "
+                      "Stop it, then run: python -m brain_mcp index", file=sys.stderr)
+                sys.exit(1)
+            db = None
             try:
+                db = BrainDB(config.db_path)
+                embedder = _EmbedFailureTracker(SentenceTransformerBackend(config.model_name))
+                vectors = VectorStore.load(config.index_path, dimension=embedder.dimension)
+                if vectors.corrupted_on_load:
+                    _clear_all_faiss_idx(db)
+                t0 = time.time()
                 count = index_vault(db, vectors, embedder, config.vault_path,
                                     config.folder_to_region, exclude_dirs=config.exclude_dirs)
+                if embedder.failed:
+                    if vectors.size > 0:
+                        vectors.save(config.index_path)
+                    print(f"ERROR: embedding failed during initial indexing: {embedder.error}. "
+                          "Fix the model setup, then run: python -m brain_mcp index",
+                          file=sys.stderr)
+                    sys.exit(1)
                 vectors.save(config.index_path)
                 elapsed = time.time() - t0
                 print(f"   Indexed {count} notes in {elapsed:.1f}s.")
             finally:
-                db.close()
+                if db is not None:
+                    db.close()
+                lock.release()
 
         print("\nDone! GYSTC is ready.")
     else:
