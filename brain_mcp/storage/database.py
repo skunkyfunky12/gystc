@@ -174,24 +174,79 @@ class BrainDB:
             self._conn.commit()
             return to_delete
 
-    def set_faiss_idx(self, note_id: int, faiss_idx: int) -> None:
+    def set_faiss_idx(self, note_id: int, faiss_idx: int) -> int | None:
+        """Stamp *faiss_idx* on a note and return the DISPLACED previous stamp
+        (or ``None`` if there was none / it is unchanged).
+
+        Read-modify-write under the DB lock: when a watcher re-index and a
+        reconcile embedding pass embed the same note concurrently, the losing
+        stamp's vector would otherwise stay in FAISS forever (orphan-vector
+        leak -- only the id currently in the row is ever passed to remove()).
+        Callers must ``vectors.remove()`` a non-None displaced id."""
         with self._lock:
+            row = self._conn.execute(
+                "SELECT faiss_idx FROM notes WHERE id=?", (note_id,)
+            ).fetchone()
+            previous = row["faiss_idx"] if row is not None else None
             self._conn.execute("UPDATE notes SET faiss_idx=?, embedded_at=? WHERE id=?",
                                (faiss_idx, datetime.now(timezone.utc).isoformat(), note_id))
             self._conn.commit()
+        return previous if previous != faiss_idx else None
 
-    def set_faiss_indices(self, items: list[tuple[int, int]]) -> None:
+    def set_faiss_indices(self, items: list[tuple[int, int]]) -> list[int]:
         """Batch variant of :meth:`set_faiss_idx` (``(note_id, faiss_idx)``):
-        one transaction instead of one commit (= WAL write) per note."""
+        one transaction instead of one commit (= WAL write) per note.
+
+        Returns the displaced previous stamps; callers must ``vectors.remove()``
+        them or they leak as orphan vectors when a watcher re-index raced this
+        batch on the same note (see :meth:`set_faiss_idx`)."""
         if not items:
-            return
+            return []
         now = datetime.now(timezone.utc).isoformat()
         with self._lock:
+            note_ids = [note_id for note_id, _ in items]
+            placeholders = ",".join("?" for _ in note_ids)
+            previous = {
+                r["id"]: r["faiss_idx"]
+                for r in self._conn.execute(
+                    f"SELECT id, faiss_idx FROM notes WHERE id IN ({placeholders})",
+                    tuple(note_ids),
+                ).fetchall()
+            }
             self._conn.executemany(
                 "UPDATE notes SET faiss_idx=?, embedded_at=? WHERE id=?",
                 [(fid, now, note_id) for note_id, fid in items],
             )
             self._conn.commit()
+        return [
+            prev for note_id, fid in items
+            if (prev := previous.get(note_id)) is not None and prev != fid
+        ]
+
+    def clear_all_faiss_idx(self) -> None:
+        """NULL every stored faiss_idx (notes + chunks) so the pipeline's
+        "re-embed faiss_idx IS NULL" reconcile rebuilds them from scratch.
+
+        Needed after index.faiss corruption/loss: rows degrade to "unindexed"
+        (recoverable) instead of keeping stale ids that collide with freshly
+        assigned ones (wrongly-mapped search results). Callers: the CLI
+        (`brain_mcp index` / `config init`) and the server writer paths
+        (_start_indexing); the dashboard reindex can reuse it the same way."""
+        with self._lock:
+            self._conn.execute("UPDATE notes SET faiss_idx=NULL, embedded_at=NULL")
+            self._conn.execute("UPDATE chunks SET faiss_idx=NULL")
+            self._conn.commit()
+
+    def has_faiss_stamps(self) -> bool:
+        """True if any note or chunk row still carries a faiss_idx stamp."""
+        with self._lock:
+            if self._conn.execute(
+                "SELECT 1 FROM notes WHERE faiss_idx IS NOT NULL LIMIT 1"
+            ).fetchone() is not None:
+                return True
+            return self._conn.execute(
+                "SELECT 1 FROM chunks WHERE faiss_idx IS NOT NULL LIMIT 1"
+            ).fetchone() is not None
 
     def get_note_by_path(self, path: str) -> sqlite3.Row | None:
         with self._lock:
@@ -427,11 +482,15 @@ class BrainDB:
                     # missing/corrupt notes_fts table would otherwise read as
                     # "the brain has no memory of this" (FTS is the only
                     # search path while the model loads).
-                    if attempt == 1 and "locked" in str(exc).lower():
-                        time.sleep(0.1)  # one short retry for transient lock contention
-                        continue
-                    print(f"fts_search failed (query={query!r}): {exc}", file=sys.stderr)
-                    return []
+                    if not (attempt == 1 and "locked" in str(exc).lower()):
+                        print(f"fts_search failed (query={query!r}): {exc}", file=sys.stderr)
+                        return []
+                    # fall through: retry once after backing off below
+            # Back off OUTSIDE the RLock: the contention is cross-process
+            # (in-process callers share this lock and busy_timeout already
+            # waited), so sleeping while holding it would stall every other
+            # DB call -- including the 'instant' brain_status/brain_recent.
+            time.sleep(0.1)
         return []
 
     def get_recent_notes(self, days: int = 7, region_idx: int | None = None, limit: int = 20) -> list[sqlite3.Row]:

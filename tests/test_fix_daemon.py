@@ -8,6 +8,12 @@ Finding 12: idle-shutdown vs respawn race -- the dying daemon held daemon.lock
 through its whole (slow) teardown, the replacement lost the lock race and exited
 before registering, and the launcher never retried, so the client got
 "daemon unreachable" although everything would have worked a second later.
+
+Follow-up finding 7 (review round 2): WriterLock.acquire() returned a bare bool,
+so run_daemon misdiagnosed 'daemon.lock could not be opened' (transient AV/ACL
+error) as "A GYSTC daemon is already running" and exited without any retry.
+_acquire_daemon_lock must retry open errors with backoff and print the real
+cause, while a genuinely held lock still exits immediately.
 """
 import os
 import time
@@ -191,3 +197,68 @@ def test_ensure_daemon_retries_when_first_spawn_loses_lock_race(tmp_path, monkey
     assert info is not None and info.port == 45678
     assert len(spawns) >= 2, "launcher must retry after the spawn died unregistered"
     assert elapsed < 10.0, "retry must happen with backoff inside the wait window"
+
+
+# ------------------------------------------ follow-up finding 7 (review round 2)
+
+class _ScriptedLock:
+    """WriterLock stand-in scripted per acquire() call ('ok'|'held'|'openfail').
+    Popping from the script also pins the exact number of acquire() calls."""
+
+    def __init__(self, script):
+        self.script = list(script)
+        self.open_failed = False
+        self.open_error = None
+
+    def acquire(self):
+        step = self.script.pop(0)
+        if step == "openfail":
+            self.open_failed, self.open_error = True, OSError("simulated AV scan")
+            return False
+        self.open_failed, self.open_error = False, None
+        return step == "ok"
+
+
+def test_daemon_lock_open_error_retries_with_backoff_then_succeeds(capsys):
+    from brain_mcp.daemon.server import _acquire_daemon_lock
+
+    sleeps = []
+    lock = _ScriptedLock(["openfail", "openfail", "ok"])
+    assert _acquire_daemon_lock(lock, sleep=sleeps.append) is True
+    assert sleeps == [0.5, 1.0], "open errors must be retried with backoff"
+    err = capsys.readouterr().err
+    assert "simulated AV scan" in err, "the real cause must be printed"
+    assert "already running" not in err, "no phantom 'already running' diagnosis"
+
+
+def test_daemon_lock_held_exits_immediately_without_retry(capsys):
+    from brain_mcp.daemon.server import _acquire_daemon_lock
+
+    sleeps = []
+    lock = _ScriptedLock(["held"])
+    assert _acquire_daemon_lock(lock, sleep=sleeps.append) is False
+    assert sleeps == [], "'held by another daemon' must not be retried"
+    assert "already running" in capsys.readouterr().err
+
+
+def test_daemon_lock_persistent_open_error_gives_up_with_real_cause(capsys):
+    from brain_mcp.daemon.server import _acquire_daemon_lock
+
+    sleeps = []
+    lock = _ScriptedLock(["openfail"] * 5)
+    assert _acquire_daemon_lock(lock, sleep=sleeps.append) is False
+    assert sleeps == [0.5, 1.0, 2.0, 4.0], \
+        "backoff must stay inside the launcher's 15s respawn window"
+    err = capsys.readouterr().err
+    assert "simulated AV scan" in err
+    assert "already running" not in err
+
+
+def test_daemon_lock_open_error_then_held_reports_running_daemon(capsys):
+    from brain_mcp.daemon.server import _acquire_daemon_lock
+
+    sleeps = []
+    lock = _ScriptedLock(["openfail", "held"])
+    assert _acquire_daemon_lock(lock, sleep=sleeps.append) is False
+    assert sleeps == [0.5]
+    assert "already running" in capsys.readouterr().err

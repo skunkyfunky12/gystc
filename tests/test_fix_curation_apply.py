@@ -6,6 +6,9 @@
 - 18: a mid-run failure never leaves silent uncommitted half-state: the partial
       mutations are committed as a clearly-marked PARTIAL commit before re-raising.
 - 30: apply_archive collision-rename and re-archive edge cases.
+Follow-up (diff-review finding 3): re-running a partially-applied proposal must
+not crash — missing-source / already-archived / already-created ops become
+recorded skips with a reason distinct from stale.
 """
 from __future__ import annotations
 
@@ -108,10 +111,12 @@ def test_revert_of_run_commit_leaves_unrelated_edit_alone(tmp_path):
 def test_mid_run_failure_commits_partial_state(tmp_path, capsys):
     v = _repo_vault(tmp_path)
     before = _git(v, "rev-list", "--count", "HEAD").strip()
-    with pytest.raises(FileNotFoundError):
+    # trigger: unknown op — a missing file is now a recorded skip (finding 3
+    # follow-up), so the hard mid-run failure pin needs a real hard error
+    with pytest.raises(ValueError):
         apply_actions(v, [
             {"op": "archive", "file": "old.md"},                   # succeeds
-            {"op": "edit", "file": "missing.md", "new_content": "x"},  # raises
+            {"op": "nope", "file": "x.md"},                        # raises
         ], run_message="run 1")
     after = _git(v, "rev-list", "--count", "HEAD").strip()
     assert int(after) == int(before) + 1               # partial state IS committed
@@ -133,16 +138,76 @@ def test_mid_run_failure_with_nothing_applied_commits_nothing(tmp_path):
 def test_next_run_commit_not_polluted_by_failed_run(tmp_path):
     # Finding 18's downstream harm: run N's revert must not drag failed run N-1 along.
     v = _repo_vault(tmp_path)
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(ValueError):
         apply_actions(v, [
             {"op": "archive", "file": "old.md"},
-            {"op": "edit", "file": "missing.md", "new_content": "x"},
+            {"op": "nope", "file": "x.md"},
         ], run_message="failed run")
     res = apply_actions(v, [
         {"op": "edit", "file": "p.md", "new_content": "# P\nrun2\n"},
     ], run_message="run 2")
     committed = _git(v, "show", "--name-only", "--format=", res["commit"])
     assert "old.md" not in committed and "99 Archiv" not in committed
+
+
+# ------------------------------------- follow-up finding 3: replayed proposals
+
+def test_replayed_archive_is_recorded_skip_not_crash(tmp_path, capsys):
+    """Re-running the SAME proposal after a (partial) apply must not crash with
+    an uncaught FileNotFoundError: the already-archived op becomes a recorded
+    skip whose reason is distinct from a stale skip."""
+    v = _repo_vault(tmp_path)
+    actions = [{"op": "archive", "file": "old.md", "base_hash": _sha(v / "old.md")}]
+    assert apply_actions(v, actions, run_message="run")["applied"] == 1
+    res = apply_actions(v, actions, run_message="run retry")   # replay: must not raise
+    assert res["applied"] == 0 and len(res["skipped"]) == 1
+    reason = res["skipped"][0]["reason"]
+    assert "already archived" in reason                        # distinct reason
+    assert "changed since analyze" not in reason               # NOT lumped with stale
+    assert "SKIPPED" in capsys.readouterr().err                # loud, not silent
+
+
+def test_replayed_create_is_recorded_skip_and_never_clobbers(tmp_path, capsys):
+    v = _repo_vault(tmp_path)
+    actions = [{"op": "create", "file": "new.md", "new_content": "# New\nv1\n"}]
+    assert apply_actions(v, actions, run_message="run")["applied"] == 1
+    res = apply_actions(v, actions, run_message="run retry")
+    assert res["applied"] == 0 and len(res["skipped"]) == 1
+    assert "already exists" in res["skipped"][0]["reason"]
+    assert (v / "new.md").read_text(encoding="utf-8") == "# New\nv1\n"  # untouched
+    assert "SKIPPED" in capsys.readouterr().err
+
+
+def test_archive_missing_source_without_archived_copy_is_recorded_skip(tmp_path, capsys):
+    v = _repo_vault(tmp_path)
+    res = apply_actions(v, [{"op": "archive", "file": "ghost.md"}], run_message="run")
+    assert res["applied"] == 0 and len(res["skipped"]) == 1
+    assert "missing" in res["skipped"][0]["reason"]
+    assert "SKIPPED" in capsys.readouterr().err
+
+
+def test_edit_of_missing_note_is_recorded_skip_not_crash(tmp_path, capsys):
+    v = _repo_vault(tmp_path)
+    res = apply_actions(v, [{"op": "edit", "file": "missing.md", "new_content": "x"}],
+                        run_message="run")
+    assert res["applied"] == 0 and len(res["skipped"]) == 1
+    assert "missing" in res["skipped"][0]["reason"]
+    assert "SKIPPED" in capsys.readouterr().err
+
+
+def test_replay_mixed_with_new_action_applies_new_without_partial_commit(tmp_path):
+    """'PARTIAL (failed mid-run)' stays reserved for real mid-run failures — a
+    replayed op next to a fresh one must yield one normal commit."""
+    v = _repo_vault(tmp_path)
+    apply_actions(v, [{"op": "archive", "file": "old.md"}], run_message="run 1")
+    res = apply_actions(v, [
+        {"op": "archive", "file": "old.md"},                         # replay -> skip
+        {"op": "edit", "file": "p.md", "new_content": "# P\nv2\n"},  # fresh -> applied
+    ], run_message="run 2")
+    assert res["applied"] == 1 and len(res["skipped"]) == 1
+    assert res["commit"]
+    assert "PARTIAL" not in _git(v, "log", "-1", "--format=%s")
+    assert "v2" in (v / "p.md").read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------- finding 30

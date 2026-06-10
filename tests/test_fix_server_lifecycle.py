@@ -31,8 +31,12 @@ from brain_mcp.server import (
     BrainState,
     _background_startup,
     _brain_store_impl,
+    _handle_file_change,
     _promotion_loop,
+    _reconcile,
+    _should_attempt_promotion,
     _shutdown,
+    _start_indexing,
     _status_logic,
 )
 from brain_mcp.storage.database import BrainDB
@@ -279,6 +283,147 @@ def test_store_timed_out_in_queue_never_mutates_late(tmp_path):
     finally:
         blocker.set()
         _shutdown(state)
+
+
+# ---------------------------------------------------------------------------
+# Review round 2 (0/5): writer paths must honor corrupted_on_load / stale stamps
+# ---------------------------------------------------------------------------
+
+def test_start_indexing_clears_stale_stamps_when_index_lost(tmp_path):
+    """Empty vector store + rows that still carry faiss_idx stamps = the index
+    file was corrupted (load() deleted it) or never saved before a crash. The
+    reconcile only re-embeds faiss_idx IS NULL rows, so without clearing, those
+    notes never rebuild and fresh ids collide with the stale ones."""
+    embedder = StubEmbedder(ready=False)
+    state = _make_state(tmp_path, embedder=embedder, with_vault=False)
+    state.db.upsert_note(
+        path="ghost.md", title="Ghost", content="body", content_hash="h1",
+        region_idx=3, tags=[], word_count=1,
+        created_at="2026-01-01", modified_at="2026-01-01", faiss_idx=7,
+    )
+    assert state.db.has_faiss_stamps()
+    assert state.vectors.size == 0
+    try:
+        _start_indexing(state)
+        assert not state.db.has_faiss_stamps(), \
+            "stale faiss_idx stamps must be cleared when the index is empty/lost"
+    finally:
+        _shutdown(state)
+
+
+def test_start_indexing_clears_stamps_on_corrupted_load_flag(tmp_path):
+    embedder = StubEmbedder(ready=False)
+    state = _make_state(tmp_path, embedder=embedder, with_vault=False)
+    state.db.upsert_note(
+        path="ghost.md", title="Ghost", content="body", content_hash="h1",
+        region_idx=3, tags=[], word_count=1,
+        created_at="2026-01-01", modified_at="2026-01-01", faiss_idx=7,
+    )
+    state.vectors.corrupted_on_load = True
+    try:
+        _start_indexing(state)
+        assert not state.db.has_faiss_stamps()
+    finally:
+        _shutdown(state)
+
+
+def test_start_indexing_keeps_stamps_when_index_matches(tmp_path):
+    """A healthy store (vectors present, no corruption) must NOT be wiped."""
+    embedder = StubEmbedder(ready=True)
+    state = _make_state(tmp_path, embedder=embedder, with_vault=False)
+    ids = state.vectors.add(embedder.embed(["one"]))
+    state.db.upsert_note(
+        path="ok.md", title="Ok", content="body", content_hash="h1",
+        region_idx=3, tags=[], word_count=1,
+        created_at="2026-01-01", modified_at="2026-01-01", faiss_idx=ids[0],
+    )
+    try:
+        _start_indexing(state)
+        assert state.db.has_faiss_stamps(), "healthy stamps must survive startup"
+    finally:
+        _shutdown(state)
+
+
+# ---------------------------------------------------------------------------
+# Review round 2 (1): indexing_active must not lie forever after model failure
+# ---------------------------------------------------------------------------
+
+def test_reconcile_clears_indexing_active_for_model_failed_instance(tmp_path):
+    """A model-failed instance's FTS-only pass is its terminal steady state:
+    the embedding pass that normally clears the flag can never run, so the
+    flag must come down with the pass instead of reporting an eternal
+    'index still building'."""
+    embedder = StubEmbedder(ready=False)
+    embedder.finish_load(fail=True)
+    state = _make_state(tmp_path, embedder=embedder, with_vault=False)
+    state.model_failed = True
+    _reconcile(state)
+    assert state.indexing_active is False, \
+        "model_failed + reconcile done => indexing_active must be False"
+    status = _status_logic(state)
+    assert status["model_failed"] is True
+    assert status["indexing_active"] is False
+
+
+def test_reconcile_keeps_indexing_active_while_model_still_loading(tmp_path):
+    """Contrast: a merely-slow model keeps the flag up — vectors are still
+    coming once the embedding pass runs."""
+    embedder = StubEmbedder(ready=False)  # loading, not failed
+    state = _make_state(tmp_path, embedder=embedder, with_vault=False)
+    _reconcile(state)
+    assert state.indexing_active is True
+
+
+# ---------------------------------------------------------------------------
+# Review round 2 (4): model-failed instances must let healthy siblings win
+# ---------------------------------------------------------------------------
+
+def test_promotion_backoff_prefers_healthy_siblings(tmp_path):
+    embedder = StubEmbedder(ready=True)
+    state = _make_state(tmp_path, embedder=embedder, is_writer=False, with_vault=False)
+    # Healthy instance: every cycle attempts.
+    assert all(_should_attempt_promotion(state, c) for c in range(1, 8))
+    # Model-failed instance: attempts only every Nth cycle (lone-instance
+    # fallback still promotes eventually, healthy siblings win the race).
+    state.model_failed = True
+    attempts = [c for c in range(1, 19) if _should_attempt_promotion(state, c)]
+    assert attempts, "a lone model-failed instance must still promote eventually"
+    assert len(attempts) <= 3, f"model-failed must back off, attempted at {attempts}"
+
+
+# ---------------------------------------------------------------------------
+# Review round 2 (6): displaced faiss stamps must be removed from the store
+# ---------------------------------------------------------------------------
+
+def test_file_change_removes_displaced_stamp_from_racing_pass(tmp_path, monkeypatch):
+    """If a reconcile embedding pass stamps the same note between our snapshot
+    read and our set_faiss_idx, that displaced vector must be removed -- only
+    the id currently in the row is ever passed to remove(), so the loser would
+    otherwise leak as an orphan forever."""
+    embedder = StubEmbedder(ready=True)
+    state = _make_state(tmp_path, embedder=embedder)
+    note_path = state.config.vault_path / "alpha.md"
+    note_path.write_text("# Alpha\nOriginal.", encoding="utf-8")
+    _handle_file_change(state, str(note_path), "created")
+    row = state.db.get_note_by_path("alpha.md")
+    assert row is not None and row["faiss_idx"] is not None
+
+    # Plant the 'racing' vector the concurrent pass would have added.
+    racing_id = state.vectors.add(embedder.embed(["racing snapshot"]))[0]
+    real_set = state.db.set_faiss_idx
+
+    def racing_set(note_id, faiss_idx):
+        real_set(note_id, faiss_idx)
+        return racing_id  # the row held the racer's stamp when we overwrote it
+
+    monkeypatch.setattr(state.db, "set_faiss_idx", racing_set)
+    note_path.write_text("# Alpha\nEdited content.", encoding="utf-8")
+    _handle_file_change(state, str(note_path), "modified")
+
+    assert state.vectors.reconstruct(racing_id) is None, \
+        "the displaced (racing) vector must be removed from the store"
+    new_row = state.db.get_note_by_path("alpha.md")
+    assert state.vectors.reconstruct(new_row["faiss_idx"]) is not None
 
 
 def test_store_timed_out_midflight_reports_ambiguity_and_uses_dedicated_pool(tmp_path):

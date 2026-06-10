@@ -1,7 +1,9 @@
 """WebEngine widget that hosts the Three.js brain renderer."""
 from __future__ import annotations
 
+import hmac
 import json
+import os
 import sys
 import threading
 import time
@@ -196,6 +198,16 @@ def _make_web_handler(directory: Path):
                     try:
                         embedder = SentenceTransformerBackend(config.model_name)
                         vectors = VectorStore.load(config.index_path, dimension=embedder.dimension)
+                        # Same consistency gate as the MCP writer paths: stamps
+                        # without vectors (corrupt index deleted by load(), or a
+                        # writer crash before the first save) block re-embedding
+                        # and make fresh ids collide with the stale ones.
+                        if vectors.corrupted_on_load or (
+                            vectors.size == 0 and db.has_faiss_stamps()
+                        ):
+                            print("reindex: index.faiss corrupt/lost; clearing stale "
+                                  "faiss_idx stamps for a true rebuild", file=sys.stderr)
+                            db.clear_all_faiss_idx()
                         t0 = time.time()
                         count = index_vault(db, vectors, embedder, config.vault_path, config.folder_to_region)
                         vectors.save(config.index_path)
@@ -325,6 +337,20 @@ def _start_local_server(directory: Path, port: int = 0) -> tuple[HTTPServer, int
 _MAX_ACTIVITY_BODY = 65536
 
 
+def _write_activity_token(path: Path, token: str) -> None:
+    """Write the session token owner-only: 0o600 at creation, chmod after for
+    a pre-existing file (O_CREAT's mode does not retrofit one). Effective on
+    POSIX; on Windows the mode only maps to the read-only flag, so it is
+    best-effort there and the user-profile ACL on the data dir does the real
+    narrowing."""
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, token.encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.chmod(path, 0o600)
+
+
 def _make_activity_handler(widget_ref, token: str):
     """Activity feed handler. The fixed port (9500) is reachable by any local
     process, so writes require the per-session *token* (Authorization: Bearer)
@@ -342,7 +368,12 @@ def _make_activity_handler(widget_ref, token: str):
                 self.end_headers()
                 return
             auth = self.headers.get("Authorization", "")
-            if auth != f"Bearer {token}":
+            # Constant-time compare, matching the daemon's guard
+            # (brain_mcp/daemon/server.py). Compared as bytes: str-mode
+            # compare_digest raises TypeError on non-ASCII input, which a
+            # hostile header could trigger.
+            if not hmac.compare_digest(auth.encode("utf-8", "replace"),
+                                       f"Bearer {token}".encode("utf-8")):
                 # Warn once per session, not per rejected request (the hook
                 # fires on every tool use until it adopts the token file).
                 if not ActivityHandler._warned_unauthorized:
@@ -417,14 +448,18 @@ class BrainWebWidget(QWebEngineView):
     def _start_activity_server(self):
         import secrets
         import weakref
-        # Per-session write token: published to <data_dir>/activity_token so the
-        # local hook (brain_mcp/hooks/activity_feed.py) can read it; any process
-        # that cannot read that file cannot inject lines into the terminal.
+        # Per-session write token: published owner-only (0o600) to
+        # <data_dir>/activity_token so the local hook
+        # (brain_mcp/hooks/activity_feed.py) can read it. This narrows which
+        # local processes can learn the token and inject lines -- a raised bar,
+        # not a hard isolation boundary: on Windows the mode is best-effort
+        # (the user-profile ACL does the real work), and any process running
+        # as this user can read the file regardless.
         token = secrets.token_hex(16)
         try:
             from brain_mcp.config import load_config
             token_path = load_config().data_dir / "activity_token"
-            token_path.write_text(token, encoding="utf-8")
+            _write_activity_token(token_path, token)
         except Exception as exc:
             print(f"activity feed: could not publish session token: {exc}", file=sys.stderr)
         handler_cls = _make_activity_handler(weakref.ref(self), token)

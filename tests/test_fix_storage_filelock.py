@@ -43,6 +43,55 @@ time.sleep(60)
 """
 
 
+# ------------------------------------------ follow-up finding 7 (review round 2)
+# acquire() == False used to be ambiguous: 'held by another process' and 'lock
+# file could not be opened' were indistinguishable, so run_daemon misdiagnosed
+# a transient ACL/AV open error as "a daemon is already running".
+
+def test_open_failure_sets_discriminator(tmp_path, monkeypatch):
+    def boom(*args, **kwargs):
+        raise OSError("simulated ACL/AV failure")
+
+    monkeypatch.setattr(file_lock_mod.os, "open", boom)
+    lk = WriterLock(tmp_path / "writer.lock")
+    assert lk.acquire() is False
+    assert lk.open_failed is True, "open error must be discriminable from 'held'"
+    assert isinstance(lk.open_error, OSError)
+
+
+def test_held_lock_does_not_set_open_failed(tmp_path):
+    a = WriterLock(tmp_path / "writer.lock")
+    b = WriterLock(tmp_path / "writer.lock")
+    try:
+        assert a.acquire() is True
+        assert a.open_failed is False and a.open_error is None
+        assert b.acquire() is False, "held by a"
+        assert b.open_failed is False, "'held' must NOT look like an open failure"
+        assert b.open_error is None
+    finally:
+        a.release()
+        b.release()
+
+
+def test_open_failed_resets_on_next_acquire(tmp_path, monkeypatch):
+    """A transient open error must not leave the discriminator sticky."""
+    lk = WriterLock(tmp_path / "writer.lock")
+    real_open = file_lock_mod.os.open
+
+    def boom(*args, **kwargs):
+        raise OSError("transient")
+
+    monkeypatch.setattr(file_lock_mod.os, "open", boom)
+    assert lk.acquire() is False
+    assert lk.open_failed is True
+    monkeypatch.setattr(file_lock_mod.os, "open", real_open)
+    try:
+        assert lk.acquire() is True, "transient open failure must be retryable"
+        assert lk.open_failed is False and lk.open_error is None
+    finally:
+        lk.release()
+
+
 def test_crash_release_lets_next_writer_in(tmp_path):
     """Child process takes the lock, parent is denied; after the child is
     killed (crash), the parent must be able to acquire -- the OS-level release

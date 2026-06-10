@@ -98,9 +98,15 @@ def index_vault(
         try:
             vecs = embedder.embed(texts)
             faiss_ids = vectors.add(vecs)
-            db.set_faiss_indices(
+            displaced = db.set_faiss_indices(
                 [(note_id, fid) for (note_id, _), fid in zip(to_embed, faiss_ids)]
             )
+            # Drop the vectors these stamps displaced (re-embedded notes kept
+            # their old vector before -- an orphan leak on every edit). Never
+            # on force: reset() already cleared the store and the stale ids
+            # may now belong to freshly-added vectors (same guard as below).
+            if displaced and not force:
+                vectors.remove(displaced)
             elapsed = time.time() - t0
             print(f"Indexed {len(to_embed)} new/changed notes in {elapsed:.1f}s.", file=sys.stderr)
         except Exception as exc:

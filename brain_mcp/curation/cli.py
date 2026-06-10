@@ -104,8 +104,9 @@ def cmd_apply(args) -> None:
     print(f"Applied {res['applied']} action(s); commit {(res['commit'] or '-')[:8]} "
           f"(revert with: git -C <vault> revert {(res['commit'] or '')[:8]}).")
     if res["skipped"]:
-        print(f"WARNING: {len(res['skipped'])} action(s) SKIPPED — note changed since "
-              "analyze (re-run analyze to refresh the proposal):", file=sys.stderr)
+        print(f"WARNING: {len(res['skipped'])} action(s) SKIPPED — not applied by this "
+              "run (stale: re-run analyze to refresh the proposal; replay: already "
+              "applied earlier, safe to drop from the proposal):", file=sys.stderr)
         for skip in res["skipped"]:
             print(f"  {skip['file']}: {skip['reason']}", file=sys.stderr)
         sys.exit(1)  # nonzero summary: the run did not fully apply

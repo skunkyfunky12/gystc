@@ -28,18 +28,6 @@ class _EmbedFailureTracker:
             raise
 
 
-def _clear_all_faiss_idx(db) -> None:
-    """NULL every stored faiss_idx (notes + chunks) so the pipeline's
-    "re-embed faiss_idx IS NULL" reconcile rebuilds them from scratch.
-
-    Needed after index.faiss corruption: rows degrade to "unindexed"
-    (recoverable) instead of keeping stale ids that collide with freshly
-    assigned ones (wrongly-mapped search results)."""
-    db.execute("UPDATE notes SET faiss_idx=NULL, embedded_at=NULL")
-    db.execute("UPDATE chunks SET faiss_idx=NULL")
-    db.execute("COMMIT")
-
-
 def cmd_index(args):
     from pathlib import Path
     from brain_mcp.config import load_config
@@ -84,7 +72,7 @@ def cmd_index(args):
                 print("WARNING: index.faiss was corrupt and has been deleted; "
                       "clearing stale faiss_idx so this run re-embeds everything.",
                       file=sys.stderr)
-                _clear_all_faiss_idx(db)
+                db.clear_all_faiss_idx()
 
         print(f"Scanning vault: {config.vault_path}", file=sys.stderr)
         count = index_vault(db, vectors, embedder, config.vault_path,
@@ -332,7 +320,7 @@ def cmd_config(args):
                 embedder = _EmbedFailureTracker(SentenceTransformerBackend(config.model_name))
                 vectors = VectorStore.load(config.index_path, dimension=embedder.dimension)
                 if vectors.corrupted_on_load:
-                    _clear_all_faiss_idx(db)
+                    db.clear_all_faiss_idx()
                 t0 = time.time()
                 count = index_vault(db, vectors, embedder, config.vault_path,
                                     config.folder_to_region, exclude_dirs=config.exclude_dirs)

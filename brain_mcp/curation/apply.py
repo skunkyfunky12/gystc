@@ -105,6 +105,17 @@ def apply_create(vault: Path, rel: str, content: str) -> None:
     _atomic_write(target, content)
 
 
+def _replay_skip_reason(vault: Path, op: str, rel: str) -> str:
+    """Distinct skip reason for replaying a partially-applied proposal — the
+    rerun must report cleanly instead of crashing, and the reason must never be
+    confused with a stale ('changed on disk') skip."""
+    if op == "archive" and _safe_target(vault, f"{_ARCHIVE}/{rel}").exists():
+        return f"{rel} already archived under '{_ARCHIVE}/' (proposal already applied)"
+    if op == "create":
+        return f"{rel} already exists — create never clobbers (proposal already applied?)"
+    return f"{rel} source missing (already applied or moved outside this run)"
+
+
 def apply_actions(vault: Path, actions: list[dict], *, run_message: str) -> dict:
     """Apply a list of CONFIRMED actions, then commit one revertable snapshot.
     actions: [{op:'archive'|'edit'|'create', file, new_content?, base_hash?}].
@@ -140,6 +151,14 @@ def apply_actions(vault: Path, actions: list[dict], *, run_message: str) -> dict
             except StaleNoteError as e:
                 print(f"SKIPPED (stale): {e}", file=sys.stderr)
                 skipped.append({"file": a.get("file"), "reason": str(e)})
+                continue
+            except (FileNotFoundError, FileExistsError):
+                # Replay of a partially-applied proposal: the source is already
+                # archived/gone or the create target already exists. Recorded
+                # skip with a distinct reason — never an uncaught traceback.
+                reason = _replay_skip_reason(vault, op, rel)
+                print(f"SKIPPED (replay): {reason}", file=sys.stderr)
+                skipped.append({"file": a.get("file"), "reason": reason})
                 continue
             applied += 1
     except Exception:

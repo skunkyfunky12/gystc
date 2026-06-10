@@ -187,3 +187,31 @@ def test_upsert_edges_batch_inserts_and_updates(tmp_path):
     assert edges[(a, b)] == "B-renamed"
     assert len(edges) == 2
     db.close()
+
+
+# -----------------------------------------------------------------------
+# Review round 2, finding 6: re-embedding a changed note must remove the
+# displaced (previous) vector -- it leaked as an orphan before.
+# -----------------------------------------------------------------------
+
+def test_reembed_removes_displaced_note_vector(tmp_path, mock_embedder):
+    vault = _build_vault(tmp_path)
+    db = BrainDB(tmp_path / "t.db")
+    vectors = VectorStore(dimension=384)
+    index_vault(db, vectors, mock_embedder, vault, {})
+    old_idx = db.get_note_by_path("a.md")["faiss_idx"]
+    assert old_idx is not None
+    size_before = vectors.size
+
+    (vault / "a.md").write_text(
+        "Alpha note EDITED. [[b]]\n#brain/hippocampus", encoding="utf-8"
+    )
+    index_vault(db, vectors, mock_embedder, vault, {})
+
+    new_idx = db.get_note_by_path("a.md")["faiss_idx"]
+    assert new_idx != old_idx
+    assert vectors.reconstruct(old_idx) is None, \
+        "displaced note vector must be removed (orphan-vector leak)"
+    assert vectors.reconstruct(new_idx) is not None
+    assert vectors.size == size_before, \
+        "store must not grow on re-embed (one in, one out)"

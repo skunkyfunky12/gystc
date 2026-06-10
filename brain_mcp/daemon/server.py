@@ -1,5 +1,5 @@
 from __future__ import annotations
-import hmac, secrets, socket, sys
+import hmac, secrets, socket, sys, time
 from typing import Callable
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
@@ -120,6 +120,35 @@ def free_port() -> int:
     s.close()
     return port
 
+
+def _acquire_daemon_lock(lock, attempts: int = 5, initial_delay: float = 0.5,
+                         sleep: Callable[[float], None] = time.sleep) -> bool:
+    """Take daemon.lock, telling 'held by another daemon' apart from 'the lock
+    file could not be opened' (WriterLock.open_failed).
+
+    A transient open error (AV scan / ACL hiccup) is NOT a running daemon.
+    Unlike writer.lock there is no promotion loop retrying for us, and the
+    launcher discards the spawned daemon's stderr -- so retry briefly with
+    backoff here and print the real cause instead of exiting with a phantom
+    "already running" diagnosis. Worst-case retry budget (defaults): 7.5s,
+    inside the launcher's 15s respawn window.
+    """
+    delay = initial_delay
+    for attempt in range(1, attempts + 1):
+        if lock.acquire():
+            return True
+        if not lock.open_failed:
+            print("A GYSTC daemon is already running; exiting.", file=sys.stderr)
+            return False
+        if attempt < attempts:
+            print(f"GYSTC daemon: daemon.lock open failed ({lock.open_error}); "
+                  f"retry {attempt}/{attempts - 1} in {delay:.1f}s", file=sys.stderr)
+            sleep(delay)
+            delay = min(delay * 2, 4.0)
+    print(f"GYSTC daemon: could not open daemon.lock after {attempts} attempts "
+          f"({lock.open_error}); exiting.", file=sys.stderr)
+    return False
+
 def run_daemon(idle_timeout: float = 1800.0) -> None:
     """Run the GYSTC FastMCP server over streamable-http on 127.0.0.1.
 
@@ -138,8 +167,7 @@ def run_daemon(idle_timeout: float = 1800.0) -> None:
 
     data_dir = load_config().data_dir
     lock = WriterLock(data_dir / "daemon.lock")
-    if not lock.acquire():
-        print("A GYSTC daemon is already running; exiting.", file=sys.stderr)
+    if not _acquire_daemon_lock(lock):  # prints the actual failure mode
         return
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

@@ -33,6 +33,10 @@ WAIT_READY_TIMEOUT = 20
 TOOL_TIMEOUT = 30
 FAISS_SAVE_INTERVAL = 60
 WRITER_PROMOTE_INTERVAL = 20  # readers retry the writer lock this often
+# A model-failed instance retries the lock this many times LESS often, so a
+# healthy sibling (20s cadence) wins the writer race while a lone broken
+# instance still promotes eventually (FTS-only indexing beats none at all).
+MODEL_FAILED_PROMOTE_EVERY = 6
 
 
 @dataclass
@@ -127,8 +131,6 @@ def _handle_file_change(state: BrainState, path: str, event_type: str) -> None:
     if hash_match and already_embedded:
         return
 
-    old_faiss_idx = old_row["faiss_idx"] if already_embedded else None
-
     note_id = state.db.upsert_note(
         path=note["path"], title=note["title"], content=note["content"],
         content_hash=note["content_hash"], region_idx=note["region_idx"],
@@ -140,9 +142,13 @@ def _handle_file_change(state: BrainState, path: str, event_type: str) -> None:
     try:
         vec = state.embedder.embed([note["content"]])
         faiss_ids = state.vectors.add(vec)
-        state.db.set_faiss_idx(note_id, faiss_ids[0])
-        if old_faiss_idx is not None:
-            state.vectors.remove([old_faiss_idx])
+        # Remove whatever stamp we actually displaced (read-modify-write inside
+        # set_faiss_idx), not a snapshot read earlier: a racing reconcile pass
+        # may have stamped a newer id in between, and only the id in the row
+        # ever reaches remove() -- the loser would leak as an orphan forever.
+        displaced = state.db.set_faiss_idx(note_id, faiss_ids[0])
+        if displaced is not None:
+            state.vectors.remove([displaced])
         # Refresh chunk vectors too -- otherwise search returns stale snippets
         # for edited notes and leaks orphaned chunk vectors. This is now the sole
         # indexing path for reader-written and external (Obsidian) edits.
@@ -259,8 +265,11 @@ def _reconcile(state: BrainState) -> None:
             print(f"ERROR: Writer reconcile scan failed: {exc}", file=sys.stderr)
         finally:
             # An FTS-only pass keeps the flag up: vectors are still missing
-            # until the embedding pass (model-ready reconcile) finishes.
-            state.indexing_active = not ready
+            # until the embedding pass (model-ready reconcile) finishes. A
+            # model_failed instance is the exception -- its embedding pass can
+            # never run, FTS-only is its terminal state, so the flag must come
+            # down instead of reporting an eternal "index still building".
+            state.indexing_active = (not ready) and not state.model_failed
 
 
 def _start_indexing(state: BrainState) -> None:
@@ -273,6 +282,19 @@ def _start_indexing(state: BrainState) -> None:
     with state._shutdown_lock:
         if state._shut_done:
             return
+    # Index/DB consistency gate (writer-only funnel for startup AND promotion):
+    # an empty store while rows still carry faiss_idx stamps means the on-disk
+    # index was corrupt (load() deleted it) or never saved before a crash. The
+    # reconcile only re-embeds faiss_idx IS NULL rows, so without clearing,
+    # those notes never rebuild and fresh ids collide with the stale stamps
+    # (wrongly-mapped search results, wrong-vector removal on edit).
+    if state.vectors.corrupted_on_load or (
+        state.vectors.size == 0 and state.db.has_faiss_stamps()
+    ):
+        print("WARNING: index.faiss corrupt/lost but rows carry faiss_idx stamps; "
+              "clearing them so the reconcile re-embeds everything.", file=sys.stderr)
+        state.db.clear_all_faiss_idx()
+        state.vectors.corrupted_on_load = False
     vault_exists = state.config.vault_path is not None and state.config.vault_path.is_dir()
     if vault_exists and state.config.auto_index:
         # Watcher BEFORE the reconcile scan: changes landing mid-scan are queued
@@ -347,14 +369,27 @@ def _handle_model_failure(state: BrainState, writer_lock: WriterLock) -> None:
         _promotion_loop(state, writer_lock)
 
 
+def _should_attempt_promotion(state: BrainState, cycle: int) -> bool:
+    """Healthy instances try every cycle; a model-failed instance (FTS-only
+    forever) backs off to every MODEL_FAILED_PROMOTE_EVERY-th cycle so that a
+    healthy sibling wins the writer race in the window between attempts."""
+    if not state.model_failed:
+        return True
+    return cycle % MODEL_FAILED_PROMOTE_EVERY == 0
+
+
 def _promotion_loop(state: BrainState, writer_lock: WriterLock) -> None:
     """Reader-only: periodically retry the writer lock. If the writer instance
     exits, take over indexing so reader writes don't pile up un-indexed."""
     import time
+    cycle = 0
     while not state._shut_done:
         time.sleep(WRITER_PROMOTE_INTERVAL)
         if state._shut_done:
             return
+        cycle += 1
+        if not _should_attempt_promotion(state, cycle):
+            continue
         if writer_lock.acquire():
             # Publish the promotion under the same lock _shutdown uses to set
             # _shut_done: either _shutdown sees is_writer/writer_lock and cleans

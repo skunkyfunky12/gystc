@@ -2,6 +2,9 @@
 - 11: the human gate must SHOW what it approves — unified diff for edits, full
       target list for archives, content for creates; --yes prints the same preview.
 - 4:  fingerprints from the analyze proposal are honored; stale skips exit nonzero.
+Follow-ups (diff-review findings 3 + 10): replaying an applied proposal exits
+nonzero with a distinct skip reason instead of crashing, and the whole module
+runs hermetically (BRAIN_DATA_DIR) instead of reading the real ~/.gystc.
 """
 from __future__ import annotations
 
@@ -11,6 +14,16 @@ from pathlib import Path
 import pytest
 
 from brain_mcp.curation.cli import main
+
+
+@pytest.fixture(autouse=True)
+def _isolated_data_dir(tmp_path, monkeypatch):
+    """Finding 10: cmd_analyze reads load_config().exclude_dirs — without
+    BRAIN_DATA_DIR that falls back to (and mkdirs!) the developer's real
+    ~/.gystc, so ambient config would silently change what these tests
+    exercise. Same convention as test_fix_cli_vector.py's cli_env fixture."""
+    monkeypatch.setenv("BRAIN_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("BRAIN_VAULT_PATH", raising=False)
 
 
 def _vault(tmp_path: Path) -> Path:
@@ -88,3 +101,37 @@ def test_apply_honors_proposal_fingerprints_and_exits_nonzero_on_stale(tmp_path,
     assert exc.value.code != 0                          # nonzero summary
     assert "CONCURRENT" in (v / "p.md").read_text(encoding="utf-8")  # not clobbered
     assert "SKIPPED" in capsys.readouterr().err
+
+
+def test_analyze_reads_isolated_config_not_real_home(tmp_path):
+    # Finding 10 pin: exclude_dirs must come from THIS test's config.json (via
+    # BRAIN_DATA_DIR), proving the CLI never consults the developer's ~/.gystc.
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / "config.json").write_text(
+        json.dumps({"exclude_dirs": ["Skip Me"]}), encoding="utf-8")
+    v = _vault(tmp_path)
+    (v / "Skip Me").mkdir()
+    (v / "Skip Me" / "hidden.md").write_text("# Hidden\n", encoding="utf-8")
+    proposal = tmp_path / "proposal.json"
+    main(["analyze", "--vault", str(v), "--out", str(proposal)])
+    fp = json.loads(proposal.read_text(encoding="utf-8"))["fingerprints"]
+    assert "p.md" in fp                                   # normal note scanned
+    assert not any(k.startswith("Skip Me/") for k in fp)  # isolated exclude honored
+
+
+def test_apply_replay_skips_cleanly_and_exits_nonzero(tmp_path, capsys):
+    """Finding 3 pin: retrying `curate apply` with the SAME proposal after it
+    already applied must not crash with FileNotFoundError — replayed ops are
+    reported as skips with a distinct reason, and the rerun still exits nonzero
+    (honest: this run did not fully apply the proposal)."""
+    v = _vault(tmp_path)
+    prop = _write_actions(tmp_path, {"actions": [{"op": "archive", "file": "p.md"}]})
+    main(["apply", "--vault", str(v), "--proposals", str(prop), "--yes"])  # applies
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as exc:                # no uncaught traceback
+        main(["apply", "--vault", str(v), "--proposals", str(prop), "--yes"])
+    assert exc.value.code != 0
+    err = capsys.readouterr().err
+    assert "already archived" in err                      # distinct replay reason
+    assert "changed since analyze" not in err             # not mislabeled as stale

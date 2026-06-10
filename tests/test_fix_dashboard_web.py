@@ -5,6 +5,10 @@ Covers:
 - Finding 20: /api/vault/ path containment must not be a string-prefix check.
 - Finding 21: three.js must be vendored locally (no unpkg.com at runtime).
 - Finding 29: the activity feed server must reject writes without the session token.
+- Follow-up finding 8 (review round 2): the token compare must be constant-time
+  (hmac.compare_digest over bytes), matching the daemon's guard.
+- Follow-up finding 9 (review round 2): the activity_token file must be written
+  owner-only (0o600; best-effort on Windows), since its readability gates writes.
 """
 import json
 import re
@@ -236,6 +240,69 @@ def test_activity_post_with_origin_header_rejected(activity_server):
     assert activity_server["widget"].received == []
 
 
+# ------------------------------------------ follow-up finding 8 (review round 2)
+
+def test_activity_auth_uses_constant_time_compare():
+    import inspect
+    import brain.web_widget as ww
+    src = inspect.getsource(ww._make_activity_handler)
+    assert "compare_digest" in src, \
+        "token check must be constant-time (hmac.compare_digest), like the daemon's"
+    assert "auth !=" not in src, "plain != comparison leaks a timing oracle"
+
+
+def test_activity_post_non_ascii_auth_header_rejected_not_crashed(activity_server):
+    # str-mode compare_digest raises TypeError on non-ASCII input; the handler
+    # must compare bytes so a hostile header yields a clean 401, not a crash.
+    code, _ = _activity_post(activity_server, {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer töken",
+    })
+    assert code == 401
+    assert activity_server["widget"].received == []
+
+
+# ------------------------------------------ follow-up finding 9 (review round 2)
+
+def test_activity_token_file_written_owner_only(tmp_path, monkeypatch):
+    import os
+    import brain.web_widget as ww
+
+    seen = {}
+    real_open = os.open
+
+    def spy_open(path, flags, mode=0o777, *args, **kwargs):
+        if Path(path).name == "activity_token":
+            seen["mode"] = mode
+            seen["flags"] = flags
+        return real_open(path, flags, mode, *args, **kwargs)
+
+    monkeypatch.setattr(ww.os, "open", spy_open)
+    token_path = tmp_path / "activity_token"
+    ww._write_activity_token(token_path, "sessiontoken123")
+    assert seen["mode"] == 0o600, "token file must be created owner-only"
+    assert seen["flags"] & os.O_TRUNC, "a stale token must be truncated"
+    assert token_path.read_text(encoding="utf-8") == "sessiontoken123"
+    if os.name == "posix":
+        assert (token_path.stat().st_mode & 0o777) == 0o600
+
+
+def test_activity_token_preexisting_world_readable_file_tightened(tmp_path):
+    # O_CREAT's mode does not retrofit an existing file: a leftover 0644 token
+    # from an old session must be truncated AND re-chmodded to 0600.
+    import os
+    import brain.web_widget as ww
+
+    token_path = tmp_path / "activity_token"
+    token_path.write_text("old-leaky-token", encoding="utf-8")
+    if os.name == "posix":
+        os.chmod(token_path, 0o644)
+    ww._write_activity_token(token_path, "fresh")
+    assert token_path.read_text(encoding="utf-8") == "fresh"
+    if os.name == "posix":
+        assert (token_path.stat().st_mode & 0o777) == 0o600
+
+
 # ---------------------------------------------------------------- finding 21
 
 def test_index_html_has_no_remote_script_origins():
@@ -265,3 +332,33 @@ def test_vendored_addon_imports_resolve():
         for spec in re.findall(r"from\s+['\"](\.[^'\"]+)['\"]", f.read_text(encoding="utf-8")):
             resolved = (f.parent / spec).resolve()
             assert resolved.is_file(), f"{f.name}: unresolved import {spec}"
+
+
+# ------------------------------------- review round 2 (0/5): reindex recovery
+
+def test_reindex_clears_stale_stamps_when_index_lost(web_server, stub_heavy_indexing):
+    """No index.faiss on disk but rows still stamped => the stamps are stale
+    (corrupt index was deleted, or the writer crashed before saving). The
+    dashboard reindex must clear them like the CLI/server writer paths do,
+    or nothing re-embeds and fresh ids collide with the stale ones."""
+    from brain_mcp.storage.database import BrainDB
+
+    db_path = web_server["data_dir"] / "brain.db"
+    db = BrainDB(db_path)
+    db.upsert_note(
+        path="ghost.md", title="Ghost", content="body", content_hash="h1",
+        region_idx=3, tags=[], word_count=1,
+        created_at="2026-01-01", modified_at="2026-01-01", faiss_idx=7,
+    )
+    assert db.has_faiss_stamps()
+    db.close()
+
+    code, data = _post(web_server["port"], "/api/reindex")
+    assert code == 200, data
+
+    db = BrainDB(db_path)
+    try:
+        assert not db.has_faiss_stamps(), \
+            "reindex must clear stale faiss_idx stamps when the index is lost"
+    finally:
+        db.close()
