@@ -14,7 +14,7 @@ DEFAULT_DATA_DIR = Path.home() / ".gystc"
 KNOWN_KEYS = {
     "vault_path", "model_name", "embedding_backend", "auto_index",
     "index_on_startup", "folder_to_region", "log_level", "auto_context",
-    "reranker",
+    "reranker", "exclude_dirs",
 }
 VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
 
@@ -31,6 +31,7 @@ class BrainConfig:
     log_level: str = "INFO"
     auto_context: bool = True
     reranker: str | None = None
+    exclude_dirs: list[str] = field(default_factory=list)
 
     @property
     def db_path(self) -> Path:
@@ -56,6 +57,8 @@ def validate_config(config: BrainConfig) -> list[str]:
     for folder, idx in config.folder_to_region.items():
         if not isinstance(idx, int) or not (0 <= idx <= 11):
             errors.append(f"folder_to_region[{folder!r}] must be 0-11, got: {idx}")
+    if not isinstance(config.exclude_dirs, list) or not all(isinstance(d, str) for d in config.exclude_dirs):
+        errors.append("exclude_dirs must be a list of strings")
     return errors
 
 
@@ -85,6 +88,7 @@ def save_config(config: BrainConfig, path: Path | None = None) -> Path:
         "log_level": config.log_level,
         "auto_context": config.auto_context,
         "reranker": config.reranker,
+        "exclude_dirs": config.exclude_dirs,
     })
     fd, tmp = tempfile.mkstemp(dir=config.data_dir, suffix=".tmp")
     try:
@@ -132,4 +136,5 @@ def load_config(config_dir: Path | None = None) -> BrainConfig:
         log_level=os.environ.get("BRAIN_LOG_LEVEL") or file_data.get("log_level", "INFO"),
         auto_context=file_data.get("auto_context", True),
         reranker=file_data.get("reranker", None),
+        exclude_dirs=file_data.get("exclude_dirs") or [],
     )

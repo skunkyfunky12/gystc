@@ -5,6 +5,7 @@ from brain_mcp.indexer.embedder import EmbeddingBackend
 from brain_mcp.indexer.vector_store import VectorStore
 from brain_mcp.storage.database import BrainDB
 from brain_mcp.tools.recent import REGION_NAMES
+from brain_mcp.tools.retrieve import MAX_BFS_NEIGHBORS
 
 
 def handle_brain_related(
@@ -30,8 +31,16 @@ def handle_brain_related(
 
     semantic_scores: dict[int, float] = {}
     if semantic and source["faiss_idx"] is not None and vectors.size > 1:
+        # Reuse the stored vector (microseconds) instead of re-embedding the
+        # full note content (20-100ms CPU) on every call. Fall back to
+        # embedding only if the id is missing from the index.
+        query_vec = vectors.reconstruct(source["faiss_idx"])
+        if query_vec is not None:
+            query_vec = query_vec.reshape(1, -1)
+        else:
+            query_vec = embedder.embed([source["content"] or source["title"]])
         scores, ids = vectors.search(
-            embedder.embed([source["content"] or source["title"]]),
+            query_vec,
             k=min(limit * 2, vectors.size),
         )
         notes = db.get_notes_by_faiss_indices([int(i) for i in ids[0] if i >= 0])
@@ -43,12 +52,17 @@ def handle_brain_related(
                 semantic_scores[note["id"]] = float(score)
 
     neighbor_ids = db.get_neighbor_ids(source["id"], depth=1)
+    if len(neighbor_ids) > MAX_BFS_NEIGHBORS:
+        # Hub/MOC notes can have hundreds of backlinks; cap the fan-out like
+        # retrieve does instead of fetching every neighbor.
+        neighbor_ids = set(sorted(neighbor_ids)[:MAX_BFS_NEIGHBORS])
 
     all_ids = set(semantic_scores.keys()) | neighbor_ids
     results = []
-    for nid in all_ids:
-        note = db.get_note_by_id(nid)
-        if note is None or note["id"] == source["id"]:
+    # One batched query instead of a lock-acquiring lookup per candidate.
+    for note in db.get_notes_by_ids(list(all_ids)):
+        nid = note["id"]
+        if nid == source["id"]:
             continue
 
         sem_score = semantic_scores.get(nid, 0.0)

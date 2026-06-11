@@ -1,9 +1,11 @@
 """First-run setup wizard -- shown when no ~/.gystc/config.json exists."""
 
 import json
+import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
@@ -58,6 +60,29 @@ QPushButton#primary:hover {{
     background: rgba(94,233,240,0.1);
 }}
 """
+
+
+def _atomic_write_json(path: Path, data: dict, indent: int = 2) -> None:
+    """Atomically replace ``path`` with serialized ``data``.
+
+    These writes touch the user's PRIMARY Claude config (~/.claude.json) and
+    settings.json -- a plain write_text() truncates first, so a crash / kill /
+    full disk mid-write would corrupt them. Serialize to a sibling temp file
+    and os.replace() onto the target (atomic on Windows and POSIX), keeping a
+    timestamped .bak of the prior content so the user can always recover.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(data, indent=indent, ensure_ascii=False)
+    if path.exists():
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        shutil.copy2(path, path.with_name(f"{path.name}.{stamp}.bak"))
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(payload, encoding="utf-8")
+        os.replace(tmp, path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise  # surfaced by the caller's except into the wizard status line
 
 
 class SetupWizard(QDialog):
@@ -268,11 +293,7 @@ class SetupWizard(QDialog):
                     existing = json.loads(mcp_path.read_text(encoding="utf-8"))
                 servers = existing.setdefault("mcpServers", {})
                 servers["gystc"] = mcp_entry
-                mcp_path.parent.mkdir(parents=True, exist_ok=True)
-                mcp_path.write_text(
-                    json.dumps(existing, indent=2, ensure_ascii=False),
-                    encoding="utf-8",
-                )
+                _atomic_write_json(mcp_path, existing)
                 results.append(f"MCP config: {mcp_path.name}")
             except Exception as e:
                 results.append(f"MCP {mcp_path.name}: {e}")
@@ -314,10 +335,7 @@ class SetupWizard(QDialog):
                 added.append("PostToolUse activity")
 
             if added:
-                settings_path.write_text(
-                    json.dumps(settings, indent=2, ensure_ascii=False),
-                    encoding="utf-8",
-                )
+                _atomic_write_json(settings_path, settings)
                 results.append("Hooks: " + ", ".join(added))
             else:
                 results.append("Hooks: already present")
@@ -364,10 +382,7 @@ class SetupWizard(QDialog):
         else:
             config.setdefault("obsidian_api_key", "")
         config.setdefault("graph_path", "graphify-out/graph.json")
-        CONFIG_PATH.write_text(
-            json.dumps(config, indent=4, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        _atomic_write_json(CONFIG_PATH, config, indent=4)
 
 
 def needs_setup() -> bool:

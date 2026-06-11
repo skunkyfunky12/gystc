@@ -1,9 +1,7 @@
 import json
-import sys
 import threading
 from http.server import HTTPServer
 from pathlib import Path
-from unittest.mock import MagicMock
 from urllib.request import Request, urlopen
 
 import pytest
@@ -12,14 +10,9 @@ from brain_mcp.storage.database import BrainDB
 from brain_mcp.indexer.vector_store import VectorStore
 from tests.conftest import MockEmbedder
 
-# Stub out PyQt6 modules so brain.web_widget can be imported headless
-for _mod in [
-    "PyQt6", "PyQt6.QtCore", "PyQt6.QtWebEngineWidgets",
-    "PyQt6.QtWebChannel", "PyQt6.QtWebEngineCore", "PyQt6.QtGui",
-    "PyQt6.QtWidgets",
-]:
-    if _mod not in sys.modules:
-        sys.modules[_mod] = MagicMock()
+# Qt is stubbed per-module via the shared conftest fixture (a collection-time
+# sys.modules mock would leak into every later test module).
+pytestmark = pytest.mark.usefixtures("qt_stubbed")
 
 # data.regions is pure data (no PyQt6 dependency), so import the REAL module.
 # Do NOT stub it into sys.modules — that previously leaked a fake (no colors,

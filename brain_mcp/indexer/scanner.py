@@ -74,7 +74,11 @@ def parse_note_file(file_path: Path, vault_root: Path, folder_to_region: dict[st
     }
 
 
-def scan_vault(vault_path: Path, folder_to_region: dict[str, int]) -> list[dict]:
+def scan_vault(
+    vault_path: Path,
+    folder_to_region: dict[str, int],
+    exclude_dirs: list[str] | None = None,
+) -> list[dict]:
     """Walk *vault_path*, parse every ``.md`` file, return structured note dicts.
 
     Parameters
@@ -84,12 +88,24 @@ def scan_vault(vault_path: Path, folder_to_region: dict[str, int]) -> list[dict]
     folder_to_region:
         Mapping from top-level folder name to region index.  Used as a
         fallback when a note has no ``#brain/<region>`` tag.
+    exclude_dirs:
+        Directory names (relative to the vault) to skip entirely, e.g.
+        ``["99 Archiv", "graphify-out"]``.  A file is skipped when any of these
+        names appears as a path component anywhere below the vault root.
     """
+    # casefold so a config entry typed in a different case still matches on the
+    # case-insensitive Windows filesystem (silent non-match would be a footgun).
+    excluded = {d.casefold() for d in (exclude_dirs or [])}
     md_files = sorted(vault_path.rglob("*.md"))
-    md_files = [f for f in md_files if ".obsidian" not in f.parts]
 
     notes: list[dict] = []
     for f in md_files:
+        if ".obsidian" in f.parts:
+            continue
+        if excluded and not excluded.isdisjoint(
+            p.casefold() for p in f.relative_to(vault_path).parts
+        ):
+            continue
         note = parse_note_file(f, vault_path, folder_to_region)
         if note is not None:
             notes.append(note)

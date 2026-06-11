@@ -17,6 +17,22 @@ TIMEOUT = 0.5
 _MAX_TEXT = 120
 
 
+def _read_session_token() -> str | None:
+    """Read the dashboard's per-session write token from <data_dir>/activity_token.
+
+    Mirrors brain_mcp.config's data-dir resolution (BRAIN_DATA_DIR env override,
+    else ~/.gystc) without importing brain_mcp — this hook runs standalone under
+    Claude Code and must stay stdlib-only."""
+    try:
+        from pathlib import Path
+        data_dir = os.environ.get("BRAIN_DATA_DIR")
+        token_path = (Path(data_dir) if data_dir else Path.home() / ".gystc") / "activity_token"
+        token = token_path.read_text(encoding="utf-8").strip()
+        return token or None
+    except OSError:
+        return None  # dashboard not running this session — POST will be rejected loudly there
+
+
 def _hl(label: str, term) -> str:
     """`label <span class='hl'>term</span>` — the hl span lights up the matching
     brain node in the dashboard. Returns just the label if term is empty."""
@@ -74,10 +90,14 @@ def main() -> None:
         return
     try:
         import urllib.request
+        headers = {"Content-Type": "application/json"}
+        token = _read_session_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         req = urllib.request.Request(
             ACTIVITY_URL,
             data=json.dumps(event).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         urllib.request.urlopen(req, timeout=TIMEOUT).close()

@@ -124,24 +124,29 @@ def handle_brain_store(
     # clobbering the shared FAISS index and faiss_idx column.
     indexed = False
     if persist:
-        # Read old FAISS index before upsert to remove ghost vector
-        old_row = db.get_note_by_path(rel_path)
-        old_faiss_idx = old_row["faiss_idx"] if old_row and old_row["faiss_idx"] is not None else None
-
         note_id = db.upsert_note(
             path=rel_path, title=safe_title, content=content, content_hash=content_hash,
             region_idx=r_idx, tags=tags, word_count=word_count,
             created_at=now.strftime("%Y-%m-%d"),
             modified_at=now.isoformat(),
         )
+        # Detach-then-embed: the surviving stamp (upsert keeps it via COALESCE)
+        # points at the OLD content's vector. Detach before embedding so a
+        # failed embed leaves the row retryable (faiss_idx IS NULL, picked up
+        # by the reconcile) instead of permanently mapped to stale content.
+        old = db.clear_faiss_idx(note_id)
+        if old is not None:
+            vectors.remove([old])
 
         if embedder.is_ready:
             try:
                 vec = embedder.embed([content])
-                if old_faiss_idx is not None:
-                    vectors.remove([old_faiss_idx])
                 faiss_ids = vectors.add(vec)
-                db.set_faiss_idx(note_id, faiss_ids[0])
+                displaced = db.set_faiss_idx(note_id, faiss_ids[0])
+                if displaced is not None:
+                    # A racing reconcile pass stamped this note between our
+                    # detach and our stamp -- drop the loser, never leak it.
+                    vectors.remove([displaced])
                 # Refresh chunk vectors too — otherwise search returns stale snippets
                 # for this note after every edit.
                 reindex_note_chunks(db, vectors, embedder, note_id, safe_title, content)

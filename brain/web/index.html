@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<!-- No remote script origins: three.js is vendored locally (./vendor/), only the
+     Qt webchannel loads from qrc:. Fonts may still come from Google Fonts and
+     degrade gracefully offline. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' qrc:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'" />
 <title>GYSTC</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -959,8 +963,8 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 <script type="importmap">
 {
   "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    "three": "./vendor/three-0.160.0/build/three.module.js",
+    "three/addons/": "./vendor/three-0.160.0/examples/jsm/"
   }
 }
 </script>
