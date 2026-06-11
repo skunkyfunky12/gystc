@@ -1,5 +1,34 @@
 # Changelog
 
+## v1.4.0 — Vault curation + full hardening pass (2026-06-11)
+
+### Added
+- **Vault curation** (`brain_mcp curate`): git-reversible vault cleanup — dead-link scan, semantic
+  near-duplicate detection, directory archiving. Read-only `analyze` produces a proposal file;
+  `apply` is human-gated with a full per-action diff preview, content fingerprints against
+  concurrent edits, and surgical pathspec commits (never `git add -A`).
+- **Indexer**: `exclude_dirs` support + stale-note pruning on (re)build, with version-history
+  tombstones so archiving never destroys note history.
+
+### Fixed (43 verified findings across 3 adversarial audit rounds; suite 243 → 408 tests)
+- **Index integrity**: a failed embed can no longer leave a note silently mapped to its OLD
+  content's vector (detach-then-embed across pipeline, watcher, store, and rollback);
+  re-embedding no longer leaks the previous vector; `--force` clears stale stamps so partial
+  failures can't collide ids; corrupted-index recovery now works on every writer path.
+- **Lifecycle**: a slow model load no longer disables indexing for the whole session — the
+  watcher and keyword search start instantly and vectors backfill when the model is ready;
+  a writer whose model hard-fails releases the lock so a healthy sibling takes over;
+  `brain_status` surfaces `model_failed` / `indexing_active` / `is_writer`.
+- **CLI**: `brain_mcp index` takes the writer lock (no more racing a live server) and never
+  reports success after an embed failure.
+- **Daemon**: chunked-transfer bodies respect the size cap; the idle-shutdown respawn race is
+  gone (lock released before teardown + launcher retry with backoff).
+- **Dashboard**: real path containment for the vault file server (resolved paths, symlink-safe),
+  reindex respects the writer lock, the activity feed requires a constant-time-checked session
+  token (0600 token file), and three.js is vendored locally — no CDN at runtime.
+- **Storage**: transactional + idempotent migrations, fail-closed writer lock, `fts_search`
+  logs instead of silently returning empty, batched reconcile transactions.
+
 ## v1.3.5 — Daemon idle-shutdown + security hardening (2026-06-08)
 
 ### Added
