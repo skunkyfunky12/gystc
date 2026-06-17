@@ -470,8 +470,15 @@ def _is_shared_daemon() -> bool:
     "Cannot operate on a closed database" (the DB was closed by the per-request
     teardown) -- so the index never converged. The in-process stdio server
     (`serve --direct`) runs exactly one lifespan per process and is unaffected.
+
+    Both conditions are required: GYSTC_NO_PARENT_WATCHDOG can be *inherited* by a
+    `serve --direct` child, and taking the daemon branch there would skip _shutdown
+    while cmd_serve os._exit(0)'s past atexit -- losing the final index save / DB
+    close / reindex drain. stateless_http (set only in run_daemon) is the defining
+    trait of the per-request-lifespan daemon, so gate on it too.
     """
-    return os.environ.get("GYSTC_NO_PARENT_WATCHDOG") == "1"
+    return (os.environ.get("GYSTC_NO_PARENT_WATCHDOG") == "1"
+            and bool(mcp.settings.stateless_http))
 
 
 def _build_brain_state() -> BrainState:

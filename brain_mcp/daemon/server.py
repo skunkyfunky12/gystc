@@ -81,19 +81,26 @@ def build_guard_middleware(token: str, allowed_origins: list[str],
 
 
 class _ReleaseLockOnShutdown:
-    """ASGI lifespan wrapper: release `lock` the moment teardown begins.
+    """ASGI lifespan wrapper: gracefully hand off BrainState + `lock` on shutdown.
 
-    The daemon's slow teardown (watcher/reindexer joins, FAISS save) runs inside
-    the inner lifespan shutdown and can take seconds. Releasing daemon.lock
-    BEFORE forwarding the shutdown message lets a replacement daemon win the
-    lock immediately instead of losing the race against a dying daemon and
-    exiting unregistered (idle-shutdown vs respawn race). uvicorn has already
-    closed the listener at this point, so two daemons never accept at once.
+    On lifespan.shutdown (idle timeout / SIGTERM), in order:
+      1. run `on_shutdown` -- the shared BrainState teardown (drain re-index, save
+         index.faiss, release writer.lock); then
+      2. release daemon.lock.
+
+    writer.lock MUST free before daemon.lock. Otherwise a successor daemon can win
+    daemon.lock while this process still owns writer.lock (released only at atexit),
+    come up read-only, and accept brain_store with persist=False -- the note lands
+    on disk but is not indexed until a later reconcile (the silent-drop class this
+    daemon exists to kill). Releasing daemon.lock here (not at process exit) still
+    lets the respawn win it promptly; uvicorn has already closed the listener at
+    this point, so two daemons never accept at once.
     """
 
-    def __init__(self, app, lock):
+    def __init__(self, app, lock, on_shutdown=None):
         self.app = app
         self.lock = lock
+        self.on_shutdown = on_shutdown
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "lifespan":
@@ -103,6 +110,13 @@ class _ReleaseLockOnShutdown:
         async def receive_release_first():
             message = await receive()
             if message["type"] == "lifespan.shutdown":
+                if self.on_shutdown is not None:
+                    # Free writer.lock + persist the index BEFORE daemon.lock, so
+                    # the successor daemon comes up as writer, not read-only.
+                    try:
+                        self.on_shutdown()
+                    except Exception as exc:
+                        print(f"GYSTC daemon: brain teardown on shutdown failed: {exc}", file=sys.stderr)
                 print("GYSTC daemon: teardown begins -> releasing daemon.lock", file=sys.stderr)
                 try:
                     self.lock.release()
@@ -197,9 +211,19 @@ def run_daemon(idle_timeout: float = 1800.0) -> None:
         return JR({"ok": True, "pid": os.getpid()})
     app.router.routes.append(Route("/health", health, methods=["GET"]))
 
-    # Release daemon.lock as soon as teardown starts (not at process exit), so
-    # a respawned daemon doesn't lose the lock race while this one drains.
-    server = uvicorn.Server(uvicorn.Config(_ReleaseLockOnShutdown(app, lock), log_level="warning"))
+    # On shutdown, hand off the shared BrainState (free writer.lock + save the
+    # index) BEFORE releasing daemon.lock, so the respawned daemon comes up as
+    # writer rather than read-only (which would accept brain_store with
+    # persist=False and drop notes from the index until a later reconcile).
+    def _graceful_brain_teardown() -> None:
+        import brain_mcp.server as _srv
+        st = _srv._SHARED_STATE
+        if st is not None:
+            _srv._shutdown(st)  # idempotent; the atexit registration is then a no-op
+
+    server = uvicorn.Server(uvicorn.Config(
+        _ReleaseLockOnShutdown(app, lock, on_shutdown=_graceful_brain_teardown),
+        log_level="warning"))
 
     def _idle_watch() -> None:
         interval = min(30.0, max(1.0, idle_timeout / 4))
