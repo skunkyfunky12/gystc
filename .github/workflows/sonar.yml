@@ -1,0 +1,45 @@
+name: SonarCloud
+
+# gystc is a public repo -> SonarCloud (SonarQube Cloud) analysis is free.
+# This is a deliberate, in-repo setup (unlike "Automatic Analysis", which is
+# invisible). It runs a lightweight static scan: bugs, code smells, security
+# hotspots and duplication. No heavy ML deps are installed and no tests are run,
+# so it stays fast and reliable. (Coverage can be layered on later.)
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  sonar:
+    name: SonarCloud Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history -> accurate new-code/blame attribution
+
+      # Until SONAR_TOKEN is configured in the repo secrets, skip cleanly instead
+      # of hard-failing the check. Remove this guard once the token is set.
+      - name: Check Sonar token
+        id: guard
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "::notice::SONAR_TOKEN not set - skipping scan. Add it in repo Settings -> Secrets to enable."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: SonarCloud Scan
+        if: steps.guard.outputs.skip != 'true'
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
