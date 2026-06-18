@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import atexit
 import os
 import sys
 import threading
@@ -458,8 +459,34 @@ def _background_startup(state: BrainState, writer_lock: WriterLock) -> None:
         traceback.print_exc(file=sys.stderr)
 
 
-@asynccontextmanager
-async def brain_lifespan(server: FastMCP) -> AsyncIterator[BrainState]:
+def _is_shared_daemon() -> bool:
+    """True when this process hosts the single shared, process-global BrainState.
+
+    The daemon sets GYSTC_NO_PARENT_WATCHDOG=1 (it must outlive its launcher, so
+    it skips the parent-death watchdog) AND runs the MCP server with
+    stateless_http=True, which re-enters brain_lifespan on EVERY request. Without
+    a singleton that rebuilt the whole brain per call -- model reload (~15s),
+    writer-election churn, and a reconcile scan that aborted mid-pass with
+    "Cannot operate on a closed database" (the DB was closed by the per-request
+    teardown) -- so the index never converged. The in-process stdio server
+    (`serve --direct`) runs exactly one lifespan per process and is unaffected.
+
+    Both conditions are required: GYSTC_NO_PARENT_WATCHDOG can be *inherited* by a
+    `serve --direct` child, and taking the daemon branch there would skip _shutdown
+    while cmd_serve os._exit(0)'s past atexit -- losing the final index save / DB
+    close / reindex drain. stateless_http (set only in run_daemon) is the defining
+    trait of the per-request-lifespan daemon, so gate on it too.
+    """
+    return (os.environ.get("GYSTC_NO_PARENT_WATCHDOG") == "1"
+            and bool(mcp.settings.stateless_http))
+
+
+def _build_brain_state() -> BrainState:
+    """Construct the BrainState, elect the writer, and start background startup.
+
+    Called once per process via _acquire_shared_state (the daemon re-enters the
+    lifespan per request; this must not run more than once or the model reloads
+    and the reconcile churns)."""
     import time
     t0 = time.perf_counter()
     config = load_config()
@@ -502,16 +529,54 @@ async def brain_lifespan(server: FastMCP) -> AsyncIterator[BrainState]:
     # lingering as an orphan holding brain.db. Replaces the old global
     # _kill_zombie_siblings, which disconnected live one-server-per-client
     # siblings (this CLI, Hermes, Command Center each spawn their own server).
-    if os.environ.get("GYSTC_NO_PARENT_WATCHDOG") != "1":
+    # The shared daemon skips this (it must outlive its launcher).
+    if not _is_shared_daemon():
         watchdog = ParentDeathWatchdog(os.getppid(), lambda: _orphan_exit(state))
         watchdog.start()
         state.watchdog = watchdog
+    return state
 
+
+_SHARED_STATE: BrainState | None = None
+_SHARED_STATE_LOCK = threading.Lock()
+
+
+def _acquire_shared_state() -> BrainState:
+    """Build the BrainState once per process and reuse it across lifespan entries.
+
+    stateless_http re-enters brain_lifespan on every request; building per request
+    reloaded the model and churned writer election + the reconcile (which aborted
+    with "closed database"). Build-once keeps a single warm model, one writer
+    election, and a continuously-running watcher."""
+    global _SHARED_STATE
+    with _SHARED_STATE_LOCK:
+        if _SHARED_STATE is None:
+            _SHARED_STATE = _build_brain_state()
+            if _is_shared_daemon():
+                # The daemon skips per-request teardown, so its graceful shutdown
+                # (drain re-index, save index.faiss, release the writer lock) runs
+                # once at process exit instead.
+                atexit.register(_shutdown, _SHARED_STATE)
+        return _SHARED_STATE
+
+
+@asynccontextmanager
+async def brain_lifespan(server: FastMCP) -> AsyncIterator[BrainState]:
+    global _SHARED_STATE
+    state = _acquire_shared_state()
     try:
         yield state
     finally:
-        _shutdown(state)
-        print("GYSTC MCP stopped.", file=sys.stderr)
+        # Daemon (stateless_http): the lifespan re-runs per request -- must NOT
+        # tear down the shared singleton here (that closed the DB mid-reconcile);
+        # atexit handles process-exit cleanup. stdio / in-process: exactly one
+        # lifespan per process -> tear down now, because cmd_serve os._exit(0)'s
+        # right after, which would skip atexit.
+        if not _is_shared_daemon():
+            _shutdown(state)
+            with _SHARED_STATE_LOCK:
+                _SHARED_STATE = None
+            print("GYSTC MCP stopped.", file=sys.stderr)
 
 BRAIN_INSTRUCTIONS = """
 You have access to a persistent knowledge vault organized into 12 brain regions.
