@@ -3,7 +3,7 @@ __pycache__/
 .venv/
 *.egg-info/
 dist/
-build/
+/build/
 graphify-out/
 launch_log.txt
 *.db

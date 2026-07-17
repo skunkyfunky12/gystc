@@ -79,6 +79,10 @@ def _build_event(payload: dict) -> dict | None:
 
 
 def main() -> None:
+    # Windows ohne PYTHONUTF8=1: piped stdin von Claude Code ist cp1252 — der
+    # Hook-Payload ist UTF-8 (Umlaute/em-dash in tool_input werden sonst Mojibake).
+    if hasattr(sys.stdin, "reconfigure"):
+        sys.stdin.reconfigure(encoding="utf-8", errors="replace")
     try:
         payload = json.load(sys.stdin)
     except Exception:
