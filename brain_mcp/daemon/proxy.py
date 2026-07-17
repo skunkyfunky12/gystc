@@ -8,6 +8,14 @@ _HEADERS = {"Content-Type": "application/json",
             "Accept": "application/json, text/event-stream"}
 
 
+def _force_utf8_stdio() -> None:
+    # Windows ohne PYTHONUTF8=1: piped stdio ist cp1252 — MCP-Traffic ist UTF-8.
+    if hasattr(sys.stdin, "reconfigure"):
+        sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+
+
 def forward_one(url: str, token: str, msg: dict, client: httpx.Client | None = None) -> dict | None:
     """POST one JSON-RPC message to the daemon; return the JSON response, or None
     for notifications / 202 (no response expected)."""
@@ -46,6 +54,7 @@ def _forward_with_recovery(client, state, data_dir, msg):
 
 
 def run_proxy() -> None:
+    _force_utf8_stdio()
     data_dir = load_config().data_dir
     info = ensure_daemon(data_dir)
     if info is None:

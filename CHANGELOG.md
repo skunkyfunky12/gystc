@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.4.2 — Windows fixes: vendored web asset + UTF-8 stdio (2026-07-17)
+
+### Fixed
+- **Dashboard web asset now tracked**: `.gitignore`'s `build/` pattern was unanchored and
+  accidentally matched the vendored `three.module.js` under
+  `brain/web/vendor/three-0.160.0/build/`, silently excluding it from the repo (and from
+  release checkouts) while `dist/`/`build/` at the repo root stayed correctly ignored.
+  Anchored to `/build/` and the file is now tracked.
+- **UTF-8 stdio on Windows**: without `PYTHONUTF8=1`, piped stdio defaults to the system's
+  legacy code page (cp1252) — but MCP JSON-RPC traffic and hook payloads are UTF-8, so
+  umlauts/em-dashes in tool arguments and stored notes turned into mojibake. The daemon
+  proxy and the activity-feed hook now force UTF-8 on stdin/stdout via `reconfigure()`
+  (guarded with `hasattr` so it stays a no-op under pytest's captured stdio).
+
+### Release integrity
+- Release artifacts now ship with a `SHA256SUMS.txt` — verify a download with
+  `Get-FileHash <file> -Algorithm SHA256` and compare against the matching line.
+
 ## v1.4.0 — Vault curation + full hardening pass (2026-06-11)
 
 ### Added

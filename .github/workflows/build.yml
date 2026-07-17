@@ -113,6 +113,13 @@ jobs:
         with:
           path: artifacts
 
+      - name: Generate SHA256 checksums
+        run: |
+          cd artifacts
+          sha256sum gystc-windows/gystc-windows.zip | sed 's|gystc-windows/||' > SHA256SUMS.txt
+          sha256sum gystc-macos/gystc-macos.dmg | sed 's|gystc-macos/||' >> SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -121,3 +128,4 @@ jobs:
           files: |
             artifacts/gystc-windows/gystc-windows.zip
             artifacts/gystc-macos/gystc-macos.dmg
+            artifacts/SHA256SUMS.txt

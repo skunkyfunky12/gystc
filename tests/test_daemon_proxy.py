@@ -1,6 +1,6 @@
-import json, threading
+import io, json, sys, threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from brain_mcp.daemon.proxy import forward_one
+from brain_mcp.daemon.proxy import _force_utf8_stdio, forward_one
 
 def _serve(handler):
     srv = HTTPServer(("127.0.0.1", 0), handler)
@@ -39,6 +39,27 @@ def test_forward_returns_none_on_202():
                            {"jsonrpc":"2.0","method":"notifications/initialized"}) is None
     finally:
         srv.shutdown()
+
+def test_force_utf8_stdio_fixes_cp1252_stdin(monkeypatch):
+    # Windows without PYTHONUTF8=1: piped stdio defaults to cp1252, but MCP
+    # traffic is UTF-8 -- without the reconfigure, umlauts/em-dash mojibake.
+    raw = '{"msg":"Grüße äöüß"}\n'.encode("utf-8")
+    fake_stdin = io.TextIOWrapper(io.BytesIO(raw), encoding="cp1252")
+    monkeypatch.setattr(sys, "stdin", fake_stdin)
+    _force_utf8_stdio()
+    assert json.loads(sys.stdin.readline())["msg"] == "Grüße äöüß"
+
+
+def test_force_utf8_stdio_skips_objects_without_reconfigure(monkeypatch):
+    # pytest replaces stdin/stdout with capture objects lacking reconfigure() --
+    # the hasattr guard must no-op instead of raising AttributeError.
+    class NoReconfigure:
+        pass
+
+    monkeypatch.setattr(sys, "stdin", NoReconfigure())
+    monkeypatch.setattr(sys, "stdout", NoReconfigure())
+    _force_utf8_stdio()  # must not raise
+
 
 def test_recovery_emits_jsonrpc_error_for_request_when_unreachable(monkeypatch):
     import brain_mcp.daemon.proxy as proxy
