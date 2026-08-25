@@ -607,7 +607,7 @@ KEEP IT FAST:
 - Don't chain multiple search calls. One brain_retrieve is usually enough.
 """.strip()
 
-def _retrieve_logic(state: "BrainState", *, query, region, limit, threshold, file_paths, depth):
+def _retrieve_logic(state: BrainState, *, query, region, limit, threshold, file_paths, depth):
     """Non-blocking retrieve. If the embedding model isn't ready yet, fall back to
     FTS instantly instead of blocking a worker thread on wait_ready — that block
     was the old 6-20s first-search-of-session freeze."""
@@ -625,7 +625,7 @@ def _retrieve_logic(state: "BrainState", *, query, region, limit, threshold, fil
     return result
 
 
-def _related_logic(state: "BrainState", *, title, path, limit):
+def _related_logic(state: BrainState, *, title, path, limit):
     """Non-blocking related. Falls back to backlinks-only when the model isn't
     ready yet, so it never blocks on wait_ready."""
     return handle_brain_related(
@@ -634,7 +634,7 @@ def _related_logic(state: "BrainState", *, title, path, limit):
     )
 
 
-def _status_logic(state: "BrainState") -> dict:
+def _status_logic(state: BrainState) -> dict:
     """brain_status payload, incl. the degraded-state flags (model_failed /
     indexing_active / is_writer) so a broken or still-building index is visible
     to clients instead of only a stderr line."""
@@ -678,7 +678,7 @@ async def brain_status() -> dict:
             asyncio.get_running_loop().run_in_executor(None, lambda: _status_logic(state)),
             timeout=TOOL_TIMEOUT,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return {"error": f"brain_status timed out after {TOOL_TIMEOUT}s."}
 
 @mcp.tool()
@@ -700,7 +700,7 @@ async def brain_recent(days: int = 7, region: str | None = None, limit: int = 20
             asyncio.get_running_loop().run_in_executor(None, _do),
             timeout=TOOL_TIMEOUT,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return [{"error": f"brain_recent timed out after {TOOL_TIMEOUT}s."}]
 
 @mcp.tool()
@@ -723,7 +723,7 @@ async def brain_regions(action: Literal["list", "describe", "customize"], region
             asyncio.get_running_loop().run_in_executor(None, _do),
             timeout=TOOL_TIMEOUT,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return {"error": f"brain_regions timed out after {TOOL_TIMEOUT}s."}
 
 # ---------------------------------------------------------------------------
@@ -768,10 +768,10 @@ async def brain_retrieve(
             ),
             timeout=TOOL_TIMEOUT,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return [{"error": f"brain_retrieve timed out after {TOOL_TIMEOUT}s."}]
 
-async def _brain_store_impl(state: "BrainState", *, title, content, region, region_idx,
+async def _brain_store_impl(state: BrainState, *, title, content, region, region_idx,
                             tags, folder, timeout: float = TOOL_TIMEOUT) -> dict:
     """brain_store body. Runs on the dedicated store pool (a slow/stuck store
     must not occupy the shared default executor and starve the instant tools).
@@ -806,7 +806,7 @@ async def _brain_store_impl(state: "BrainState", *, title, content, region, regi
             asyncio.get_running_loop().run_in_executor(state.store_pool, _do),
             timeout=timeout,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         cancelled.set()
         if not started.is_set():
             # Worker never started: the cancelled flag is guaranteed to be seen
@@ -857,7 +857,7 @@ async def brain_related(title: str | None = None, path: str | None = None, limit
             ),
             timeout=TOOL_TIMEOUT,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return {"error": f"brain_related timed out after {TOOL_TIMEOUT}s."}
 
 # ---------------------------------------------------------------------------
@@ -919,7 +919,7 @@ async def brain_classify(
             asyncio.get_running_loop().run_in_executor(None, _do),
             timeout=TOOL_TIMEOUT,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return {"error": f"brain_classify timed out after {TOOL_TIMEOUT}s."}
 
 @mcp.tool()
@@ -969,5 +969,5 @@ async def brain_versions(
             asyncio.get_running_loop().run_in_executor(None, _do),
             timeout=TOOL_TIMEOUT,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return {"error": f"brain_versions timed out after {TOOL_TIMEOUT}s."}

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import sqlite3
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 MIGRATIONS: list[str] = [
     # v1: initial schema (schema_version is created by run_migrations, NOT here)
@@ -143,7 +143,7 @@ def _apply_migration(conn: sqlite3.Connection, version: int, sql: str) -> None:
             if m and _column_exists(conn, m.group(1), m.group(2)):
                 continue  # column already added by a crashed earlier run
             conn.execute(stmt)
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)", (version, now))
         conn.execute("COMMIT")
     except Exception:

@@ -1,6 +1,10 @@
 from __future__ import annotations
-import hmac, secrets, socket, sys, time
-from typing import Callable
+import hmac
+import secrets
+import socket
+import sys
+import time
+from collections.abc import Callable
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 
@@ -169,7 +173,10 @@ def run_daemon(idle_timeout: float = 1800.0) -> None:
     If idle_timeout > 0, the daemon self-terminates after that many seconds with no
     authorized request; the proxy transparently respawns it on the next call. 0 = never.
     """
-    import os, time, threading, uvicorn
+    import os
+    import time
+    import threading
+    import uvicorn
     os.environ["GYSTC_NO_PARENT_WATCHDOG"] = "1"  # daemon must NOT die with its launcher
     from mcp.server.transport_security import TransportSecuritySettings
     from starlette.routing import Route

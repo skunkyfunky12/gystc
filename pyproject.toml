@@ -37,6 +37,30 @@ dashboard = [
 [tool.setuptools.packages.find]
 include = ["brain_mcp*"]
 
+[tool.ruff]
+target-version = "py311"
+extend-exclude = ["dist", "build", "brain/web/vendor"]
+
+[tool.ruff.lint]
+# Pinned so the finding count is a property of the repo, not of whoever runs it
+# (the external review reported 250 findings from its own invocation).
+# Deliberately NOT enabled:
+#   BLE001 (blind except, 48x) - nearly all are documented decisions in recovery
+#     paths; turning it on would mean 48 noqa comments, not 48 fixes.
+#   I001 (import sorting) - would rewrite the import block of most files in the
+#     repo for no behavioural gain.
+#   PLW1510 (subprocess without check) - needs a per-call judgement, not a sweep.
+# Correctness and dead code, not formatting: E701/E702 (statements joined by a
+# colon or semicolon) and E402 are style, and this repo uses both deliberately in
+# its CLI and test teardown.
+select = ["E401", "E711", "E712", "E713", "E714", "E721", "E722", "E731",
+          "E9", "F", "UP", "S110"]
+
+[tool.ruff.lint.per-file-ignores]
+# Best-effort teardown: closing the stdin of an already-dead process or killing a
+# daemon that never started must not mask the failure the test actually found.
+"tests/test_daemon_e2e.py" = ["S110"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Hang-guard: this codebase's bug history is dominated by hang classes, so a

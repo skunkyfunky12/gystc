@@ -1,4 +1,7 @@
-import io, json, sys, threading
+import io
+import json
+import sys
+import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from brain_mcp.daemon.proxy import _force_utf8_stdio, forward_one
 
@@ -43,7 +46,7 @@ def test_forward_returns_none_on_202():
 def test_force_utf8_stdio_fixes_cp1252_stdin(monkeypatch):
     # Windows without PYTHONUTF8=1: piped stdio defaults to cp1252, but MCP
     # traffic is UTF-8 -- without the reconfigure, umlauts/em-dash mojibake.
-    raw = '{"msg":"Grüße äöüß"}\n'.encode("utf-8")
+    raw = '{"msg":"Grüße äöüß"}\n'.encode()
     fake_stdin = io.TextIOWrapper(io.BytesIO(raw), encoding="cp1252")
     monkeypatch.setattr(sys, "stdin", fake_stdin)
     _force_utf8_stdio()

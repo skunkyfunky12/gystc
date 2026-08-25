@@ -15,7 +15,6 @@ spec's default parameters produce deterministic, stable behaviour:
 """
 
 import numpy as np
-import pytest
 
 from brain.physics import PhysicsSimulation
 

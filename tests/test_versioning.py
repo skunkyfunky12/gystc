@@ -97,14 +97,12 @@ def test_delete_note_cascades_versions(tmp_path):
     db.close()
 
 
-import difflib
-from pathlib import Path
 from brain_mcp.tools.versioning import handle_brain_history, handle_brain_diff, handle_brain_rollback
 
 
 def test_brain_history(tmp_path):
     db = BrainDB(tmp_path / "test.db")
-    nid = _make_note(db, content="v1", content_hash="h1")
+    _make_note(db, content="v1", content_hash="h1")
     db.upsert_note(path="a.md", title="Note A", content="v2", content_hash="h2",
                    region_idx=0, tags=["#test"], word_count=1,
                    created_at="2026-01-01", modified_at="2026-01-02")

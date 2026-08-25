@@ -1,5 +1,4 @@
 # tests/test_tool_store.py
-from pathlib import Path
 from brain_mcp.storage.database import BrainDB
 from brain_mcp.indexer.vector_store import VectorStore
 from brain_mcp.tools.store import handle_brain_store, sanitize_title
@@ -146,7 +145,7 @@ def test_store_strips_existing_brain_tag(tmp_path, mock_embedder):
     vault.mkdir()
     db = BrainDB(tmp_path / "test.db")
     vectors = VectorStore(dimension=384)
-    result = handle_brain_store(
+    handle_brain_store(
         db, vectors, mock_embedder, vault,
         title="ReTag", content="Old content\n\n#brain/stammhirn\n",
         region="Hippocampus",

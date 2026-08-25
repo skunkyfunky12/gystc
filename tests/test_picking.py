@@ -1,6 +1,5 @@
 """Tests for brain.picking — ray-casting node picker (TDD)."""
 import numpy as np
-import pytest
 
 from brain.picking import pick_node
 

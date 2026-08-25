@@ -123,8 +123,8 @@ def cmd_serve(args):
 def cmd_config(args):
     from pathlib import Path
     from brain_mcp.config import (
-        BrainConfig, DEFAULT_MODEL, KNOWN_KEYS, VALID_LOG_LEVELS,
-        load_config, save_config, validate_config,
+        BrainConfig, KNOWN_KEYS, VALID_LOG_LEVELS,
+        load_config, save_config,
     )
     from brain_mcp.tools.recent import REGION_NAMES
 
@@ -261,7 +261,7 @@ def cmd_config(args):
 
         # 1. Vault path
         default_vault = str(config.vault_path) if config.vault_path else ""
-        prompt = f"\n1. Vault path"
+        prompt = "\n1. Vault path"
         if default_vault:
             prompt += f" [{default_vault}]"
         prompt += ": "
@@ -288,7 +288,7 @@ def cmd_config(args):
             if d.is_dir() and not d.name.startswith(".")
         )
         if top_folders:
-            print(f"\n3. Folder-to-region mapping")
+            print("\n3. Folder-to-region mapping")
             print(f"   Detected folders: {', '.join(top_folders)}")
             default_mapping = {
                 "00 Index": 8, "01 Lucas": 3, "02 Projekte": 0,

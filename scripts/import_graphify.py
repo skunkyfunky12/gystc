@@ -48,7 +48,7 @@ def build_note_index(db: BrainDB) -> dict[str, int]:
 
 def import_graphify(graph_path: Path, db: BrainDB, *, dry_run: bool = False) -> dict:
     """Import graphify graph.json into brain.db edges."""
-    with open(graph_path, "r", encoding="utf-8") as f:
+    with open(graph_path, encoding="utf-8") as f:
         graph = json.load(f)
 
     nodes = graph.get("nodes", [])

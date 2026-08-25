@@ -82,7 +82,6 @@ def assign_tag(file_path: Path) -> str | None:
     elif text.rstrip().endswith("---") and text.count("---") >= 2:
         last_fence = text.rfind("---")
         before = text[:last_fence].rstrip()
-        after = text[last_fence:]
         tags_match = re.search(r"(tags:\s*\n(?:\s+-\s+.*\n)*)", before)
         if tags_match:
             tags_block = tags_match.group(0)

@@ -105,8 +105,12 @@ def main() -> None:
             method="POST",
         )
         urllib.request.urlopen(req, timeout=TIMEOUT).close()
-    except Exception:
-        pass  # dashboard not running / port closed — silently ignore
+    except Exception:  # noqa: S110 - see below
+        # Deliberately silent, and it has to stay that way: this hook runs as a
+        # FRESH PROCESS on every tool use, so there is no "warn once" to be had
+        # -- any message here would print on every single call. The dashboard
+        # simply not running is the normal case.
+        pass
 
 
 if __name__ == "__main__":

@@ -1,5 +1,4 @@
 import time
-from pathlib import Path
 from brain_mcp.indexer.watcher import BrainWatcher
 
 

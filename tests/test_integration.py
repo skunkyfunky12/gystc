@@ -1,6 +1,4 @@
 """Integration tests: full indexing pipeline and incremental re-index."""
-from pathlib import Path
-from brain_mcp.config import BrainConfig
 from brain_mcp.storage.database import BrainDB
 from brain_mcp.indexer.vector_store import VectorStore
 from brain_mcp.indexer.scanner import scan_vault

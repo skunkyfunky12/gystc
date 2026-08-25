@@ -8,7 +8,6 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import pytest
 
 from brain_mcp.curation.vault_git import ensure_vault_repo, commit_run, head_sha
 

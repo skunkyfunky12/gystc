@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import sys
 import threading
-from typing import Callable
+from collections.abc import Callable
 
 try:  # psutil is a hard dependency, but degrade gracefully if it is missing.
     import psutil

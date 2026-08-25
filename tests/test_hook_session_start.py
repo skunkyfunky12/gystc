@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 from brain_mcp.hooks.session_start_context import get_brain_db_path, build_query, search_and_format
 from brain_mcp.storage.database import BrainDB

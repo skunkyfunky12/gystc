@@ -18,3 +18,4 @@ secrets.json
 config.local.json
 # internal working docs - never publish
 docs/superpowers/
+.ruff_cache/

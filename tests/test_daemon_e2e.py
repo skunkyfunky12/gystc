@@ -1,4 +1,9 @@
-import json, os, signal, subprocess, sys, time
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
 import pytest
 from pathlib import Path
 
@@ -56,7 +61,12 @@ def test_proxy_end_to_end(tmp_path):
 
 @pytest.mark.slow
 def test_proxy_replies_even_if_daemon_dies_midsession(tmp_path):
-    import json, os, signal, subprocess, sys, time
+    import json
+    import os
+    import signal
+    import subprocess
+    import sys
+    import time
     from pathlib import Path
     repo = Path(__file__).resolve().parent.parent
     vault = tmp_path / "vault"; vault.mkdir()
@@ -107,7 +117,11 @@ def test_proxy_replies_even_if_daemon_dies_midsession(tmp_path):
 @pytest.mark.slow
 def test_daemon_self_shuts_down_when_idle(tmp_path):
     """A daemon started with a short --idle exits on its own with no requests."""
-    import json, os, subprocess, sys, time
+    import json
+    import os
+    import subprocess
+    import sys
+    import time
     from pathlib import Path
     repo = Path(__file__).resolve().parent.parent
     vault = tmp_path / "vault"; vault.mkdir()
