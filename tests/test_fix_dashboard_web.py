@@ -674,3 +674,16 @@ def test_closing_the_widget_releases_the_cached_database():
     nxt = module_src.find(chr(10) + "    def ", start + 1)
     src = module_src[start:] if nxt < 0 else module_src[start:nxt]
     assert "_reset_search_state()" in src
+
+
+def test_dashboard_js_parses():
+    """The token wiring touched brain-app.js, and nothing else in the suite would
+    notice a syntax error there -- the dashboard would simply come up blank."""
+    import shutil
+    import subprocess
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node not available")
+
+    subprocess.run([node, "--check", str(WEB_DIR / "brain-app.js")], check=True,
+                   capture_output=True)
