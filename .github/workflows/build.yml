@@ -9,7 +9,13 @@ permissions:
   contents: write
 
 jobs:
+  # The release gate: the same suite that guards pull requests also guards the
+  # artifacts. Without this a tag on a red tree still shipped binaries.
+  test:
+    uses: ./.github/workflows/test.yml
+
   build:
+    needs: test
     strategy:
       matrix:
         include:

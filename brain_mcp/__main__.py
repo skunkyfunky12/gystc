@@ -164,16 +164,22 @@ def cmd_config(args):
         else:
             print(f"  DB: {config.db_path} (not created)")
         if config.index_path.exists():
-            try:
-                from brain_mcp.indexer.vector_store import VectorStore
-                vs = VectorStore.load(config.index_path, dimension=384)
-                if vs.corrupted_on_load:
-                    print(f"  Index: {config.index_path} (was corrupt -- deleted; "
-                          "run `python -m brain_mcp index` to rebuild)")
-                else:
-                    print(f"  Index: {config.index_path} ({vs.size} vectors)")
-            except Exception as e:
-                print(f"  Index: {config.index_path} (error reading: {e})")
+            # Read-only on purpose: VectorStore.load() DELETES an index whose
+            # dimension differs from the one passed in, and this command has no
+            # embedder to ask for the right one. Reporting on the index must
+            # never destroy it -- least of all here, where the user is running
+            # `config show` precisely because search stopped working. The
+            # dimension is printed for the same reason: an index built by a
+            # different model than the configured one is the case being
+            # diagnosed.
+            from brain_mcp.indexer.vector_store import read_index_stats
+            index_stats = read_index_stats(config.index_path)
+            if index_stats is None:
+                print(f"  Index: {config.index_path} (unreadable; "
+                      "run `python -m brain_mcp index` to rebuild)")
+            else:
+                count, dims = index_stats
+                print(f"  Index: {config.index_path} ({count} vectors, {dims} dims)")
         else:
             print(f"  Index: {config.index_path} (not created)")
 

@@ -176,3 +176,26 @@ class VectorStore:
                 )
                 path.unlink(missing_ok=True)
         return store
+
+
+def read_index_stats(path: Path | str) -> tuple[int, int] | None:
+    """Return ``(ntotal, dimension)`` of the index file at *path*, or ``None``
+    if it is missing or unreadable.
+
+    Read-only counterpart to :meth:`VectorStore.load`. ``load()`` DELETES a file
+    it cannot read -- and a dimension it did not expect counts as unreadable.
+    That is right for the writer paths, which rebuild afterwards, but fatal for
+    a caller that only wants a number: the dashboard's /api/stats passed a
+    hardcoded 384 and so destroyed the index of every non-384 embedding model
+    just by being opened. Display-only callers must use this instead; it never
+    writes and never guesses a dimension.
+    """
+    path = Path(path)
+    if not path.exists():
+        return None
+    try:
+        index = faiss.read_index(str(path))
+    except Exception as exc:  # faiss raises bare RuntimeError on damaged files
+        print(f"read_index_stats: cannot read {path}: {exc}", file=sys.stderr)
+        return None
+    return int(index.ntotal), int(index.d)

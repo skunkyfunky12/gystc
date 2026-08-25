@@ -145,20 +145,25 @@ def _make_web_handler(directory: Path):
                     conn = sqlite3.connect(str(config.db_path))
                     try:
                         cur = conn.cursor()
+                        # Read-only counters, but the writer may hold the DB:
+                        # wait instead of failing the whole panel with
+                        # "database is locked".
+                        cur.execute("PRAGMA busy_timeout = 5000")
                         notes_count = cur.execute("SELECT count(*) FROM notes").fetchone()[0]
                         try:
                             edges_count = cur.execute("SELECT count(*) FROM edges").fetchone()[0]
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            print(f"stats: edge count unavailable: {exc}", file=sys.stderr)
                     finally:
                         conn.close()
-                if config.index_path.exists():
-                    try:
-                        from brain_mcp.indexer.vector_store import VectorStore
-                        vs = VectorStore.load(config.index_path, dimension=384)
-                        vectors_count = vs.size
-                    except Exception:
-                        pass
+                # Never VectorStore.load() here: it deletes an index whose
+                # dimension does not match the one passed in, and this path has
+                # no embedder to ask, so any literal would be a guess that
+                # destroys the index of a differently-configured model.
+                from brain_mcp.indexer.vector_store import read_index_stats
+                index_stats = read_index_stats(config.index_path)
+                if index_stats is not None:
+                    vectors_count = index_stats[0]
                 self._json_response(200, {
                     "notes": notes_count,
                     "vectors": vectors_count,

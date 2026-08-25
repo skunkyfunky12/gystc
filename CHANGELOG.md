@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **Reading the stats could delete the vector index** (external review 2026-08-23, finding 4 —
+  severity raised on verification): `VectorStore.load()` deletes an index file whose dimension
+  differs from the one passed in, which is right for the writer paths that rebuild afterwards
+  and fatal for a caller that only wants a number. Two display-only callers passed a hardcoded
+  `384`, so with any non-384 embedding model configured (`BRAIN_MODEL_NAME`, e.g.
+  `all-mpnet-base-v2` at 768) they destroyed `index.faiss` just by being run: the dashboard's
+  `/api/stats`, which `brain-app.js` fetches on every page load, and `brain_mcp config show` —
+  the command a user runs *because* search stopped working. Both failures were silent
+  (`except Exception: pass` on one side, a "was corrupt" line on the other), and since the DB
+  kept its `faiss_idx` stamps nothing re-embedded afterwards either: semantic search stayed
+  dead while keyword search kept answering and covered it up. Both now use the new
+  `read_index_stats()`, which reads `(ntotal, dimension)` without writing and without guessing
+  a dimension. `config show` also prints the index dimension, since a mismatch with the
+  configured model is exactly what that command is run to diagnose.
+- **`/api/stats` no longer swallows failures**: the edge-count fallback logged nothing, and the
+  raw `sqlite3` connection had no busy timeout — a live writer could turn the panel into a
+  bare "database is locked". Now `PRAGMA busy_timeout = 5000` and a stderr line.
+
+### CI
+- **Tests now gate every pull request and every release** (finding 2): `build.yml` was the only
+  workflow and triggered solely on `push: tags: v*`, so the 65 test files — `test_security.py`
+  and the daemon E2E suite included — ran nowhere automatically, and a tag on a red tree still
+  produced published binaries. New reusable `test.yml` runs the full suite (Windows + macOS,
+  `QT_QPA_PLATFORM=offscreen`) on pull requests and master pushes, and `build` now `needs` it.
+
 ## v1.4.2 — Windows fixes: vendored web asset + UTF-8 stdio (2026-07-17)
 
 ### Fixed

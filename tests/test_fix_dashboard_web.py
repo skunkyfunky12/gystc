@@ -362,3 +362,61 @@ def test_reindex_clears_stale_stamps_when_index_lost(web_server, stub_heavy_inde
             "reindex must clear stale faiss_idx stamps when the index is lost"
     finally:
         db.close()
+
+
+# ----------------------------------------- ox-alpha review 2026-08-23, finding 4
+# /api/stats hardcoded dimension=384 while VectorStore.load() DELETES an index
+# whose dimension does not match. With a non-384 model configured, merely
+# opening the dashboard (brain-app.js fetches /api/stats on load) destroyed
+# index.faiss -- silently, because the caller swallowed everything. The DB kept
+# its faiss_idx stamps, so nothing re-embedded afterwards either.
+
+def _write_index(path: Path, dimension: int, count: int = 3) -> None:
+    import numpy as np
+    from brain_mcp.indexer.vector_store import VectorStore
+    store = VectorStore(dimension=dimension)
+    store.add(np.ones((count, dimension), dtype=np.float32))
+    store.save(path)
+
+
+def test_stats_does_not_delete_index_with_non_384_dimension(web_server):
+    index_path = web_server["data_dir"] / "index.faiss"
+    _write_index(index_path, dimension=768)
+    before = index_path.read_bytes()
+
+    code, _ = _get(web_server["port"], "/api/stats")
+
+    assert code == 200
+    assert index_path.exists(), \
+        "/api/stats must not delete the FAISS index of a non-384 model"
+    assert index_path.read_bytes() == before, "/api/stats must not rewrite the index"
+
+
+def test_stats_counts_vectors_of_non_384_index(web_server):
+    _write_index(web_server["data_dir"] / "index.faiss", dimension=768, count=5)
+
+    code, body = _get(web_server["port"], "/api/stats")
+
+    assert code == 200
+    assert json.loads(body)["vectors"] == 5
+
+
+def test_stats_counts_vectors_of_384_index(web_server):
+    _write_index(web_server["data_dir"] / "index.faiss", dimension=384, count=2)
+
+    code, body = _get(web_server["port"], "/api/stats")
+
+    assert code == 200
+    assert json.loads(body)["vectors"] == 2
+
+
+def test_stats_reports_zero_vectors_when_no_index_exists(web_server):
+    # The handler dropped its `index_path.exists()` guard when it stopped using
+    # VectorStore.load(); read_index_stats() answers None for a missing file and
+    # the panel must still render rather than 500.
+    assert not (web_server["data_dir"] / "index.faiss").exists()
+
+    code, body = _get(web_server["port"], "/api/stats")
+
+    assert code == 200
+    assert json.loads(body)["vectors"] == 0

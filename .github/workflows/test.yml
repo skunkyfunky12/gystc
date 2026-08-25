@@ -1,0 +1,54 @@
+# The test gate. Runs on every pull request and every push to master, and is
+# called by build.yml so a release can never be cut from a red suite.
+#
+# Before this existed, build.yml was the ONLY workflow and it triggered solely
+# on `push: tags: v*` -- 65 test files (including test_security.py and the
+# daemon E2E tests) ran nowhere automatically, and a tag on a broken tree still
+# produced published binaries.
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_call:
+
+jobs:
+  pytest:
+    strategy:
+      # Both released platforms report independently: a macOS-only failure must
+      # not hide a Windows one, and vice versa.
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    env:
+      # The setup-wizard tests construct a real QApplication. The offscreen
+      # plugin makes that deterministic on a runner with no display session.
+      QT_QPA_PLATFORM: offscreen
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package + test dependencies
+        # [dashboard] is not optional for the suite: without `requests` the
+        # obsidian tests fail and without `scipy` the physics tests do, while
+        # without PyQt6 the setup-wizard tests importorskip themselves into a
+        # green-looking void. Install what the tests actually exercise.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,dashboard]"
+
+      - name: pytest
+        # Full suite including `-m slow` (real daemon/proxy subprocesses) --
+        # those cover the single-writer and shutdown invariants, which are this
+        # codebase's most expensive bug class. pytest-timeout (120s) turns a
+        # deadlock into a failure instead of a frozen job.
+        run: python -m pytest -q
