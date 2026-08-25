@@ -1,5 +1,94 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **Reading the stats could delete the vector index** (external review 2026-08-23, finding 4 —
+  severity raised on verification): `VectorStore.load()` deletes an index file whose dimension
+  differs from the one passed in, which is right for the writer paths that rebuild afterwards
+  and fatal for a caller that only wants a number. Two display-only callers passed a hardcoded
+  `384`, so with any non-384 embedding model configured (`BRAIN_MODEL_NAME`, e.g.
+  `all-mpnet-base-v2` at 768) they destroyed `index.faiss` just by being run: the dashboard's
+  `/api/stats`, which `brain-app.js` fetches on every page load, and `brain_mcp config show` —
+  the command a user runs *because* search stopped working. Both failures were silent
+  (`except Exception: pass` on one side, a "was corrupt" line on the other), and since the DB
+  kept its `faiss_idx` stamps nothing re-embedded afterwards either: semantic search stayed
+  dead while keyword search kept answering and covered it up. Both now use the new
+  `read_index_stats()`, which reads `(ntotal, dimension)` without writing and without guessing
+  a dimension. `config show` also prints the index dimension, since a mismatch with the
+  configured model is exactly what that command is run to diagnose.
+- **`/api/stats` no longer swallows failures**: the edge-count fallback logged nothing, and the
+  raw `sqlite3` connection had no busy timeout — a live writer could turn the panel into a
+  bare "database is locked". Now `PRAGMA busy_timeout = 5000` and a stderr line.
+
+- **Rejected POSTs answered with an RST instead of a status on macOS**: found by the new CI
+  gate on its first run. A handler that answers 401/403/404 without reading the request body
+  leaves the received bytes in the socket; `BaseHTTPRequestHandler` then closes the connection,
+  and on BSD/macOS closing a socket that still holds unread data sends an RST rather than a FIN.
+  The client raises `ConnectionResetError` instead of seeing the status just written — a hook
+  post rejected for a stale token reported "connection reset by peer", pointing debugging at the
+  network instead of at the token. Windows and Linux tolerate the same code, which is why three
+  long-standing activity-feed tests only went red once the suite started running on macOS. All
+  three rejection paths (activity feed 401/403, dashboard 404) now drain the body first, bounded
+  by `MAX_DRAIN_BODY`.
+
+- **Dashboard API endpoints now require the session token** (finding 1, the review's only HIGH):
+  `/api/config` (POST rewrites the configuration), `/api/reindex`, `/api/search` and
+  `/api/vault/<path>` (serves any note or attachment in the vault) ran on an ephemeral
+  127.0.0.1 port with no token and no origin check — while the activity feed on the *fixed*
+  port 9500 has had both since the last audit. Any local process could scan for the port and
+  read vault contents over HTTP, and a browser tab could reach the state-changing endpoints
+  (the body is parsed as JSON regardless of Content-Type, so `text/plain` skips the preflight).
+  All `/api/*` routes now require a per-session bearer token, injected into the dashboard's own
+  page at document creation via `QWebEngineScript`, so a tab that guesses the port still cannot
+  obtain it. Foreign origins are rejected on top of that; the page's own origin is allowed
+  because Chrome sends `Origin` on same-origin POSTs. Static files stay open — the shell has to
+  load before any script can send a token, and it carries no vault data.
+- **A reindex no longer loads a second embedding model** (finding 3): `/api/reindex` built its
+  own `SentenceTransformerBackend` and `VectorStore` next to the ones the search cache already
+  held — two models in one process. It now reuses the cached triple, which also fixes a
+  correctness bug: rebuilding into a private store left the cached one (the store search answers
+  from) holding the pre-reindex index until the dashboard restarted. Closing the widget releases
+  the cached database handle, which nothing did before.
+- **Windows device names in note titles** (finding 5): `sanitize_title` stripped bad characters
+  but let `CON`, `NUL`, `COM1` … through, and Windows resolves those to devices regardless of
+  extension or directory — so a note titled `CON` could not be written. The device stem now gets
+  a trailing underscore (`CON_.md`). Applied everywhere, not only on Windows: a vault written on
+  macOS is routinely opened on Windows.
+- **The watcher ignored `.MD`** (finding 6) and its delete path checked neither the exclude list
+  nor the pending-write registry — archiving a folder pulled exactly the notes the exclude list
+  exists to keep out back through the change path.
+- **`created_at` was the modification time** (finding 7): now taken from `st_birthtime`
+  (macOS/BSD) or `st_ctime` (Windows, where it is the creation time), clamped to never exceed
+  the modification time; Linux exposes neither, so mtime remains the fallback there.
+- **The proxy passed HTTP errors off as JSON-RPC responses** (finding 9): `forward_one` returned
+  a 401 body verbatim, so the client saw an error object where a result belongs — and the real
+  cause (a stale registry token, which respawning the daemon repairs) stayed hidden.
+- **`load_config` never validated what it loaded** (finding 11): only `save_config` did, so a
+  `config.json` edited by hand came back silently and misbehaved somewhere far from its cause.
+  It now warns and keeps going — refusing to load would lock the user out of the command that
+  fixes the file.
+- **Not changed — finding 8 could not be reproduced.** The review filed `/health` as
+  unauthenticated (leaks the PID). The daemon's guard middleware wraps every route, including one
+  appended to `app.router.routes` *after* `add_middleware`, which is the ordering that could
+  plausibly have bypassed it. `test_daemon_guard_covers_health_route_appended_after_the_middleware`
+  reproduces production exactly and shows an anonymous `GET /health` gets 401.
+
+### CI
+- **Tests now gate every pull request and every release** (finding 2): `build.yml` was the only
+  workflow and triggered solely on `push: tags: v*`, so the 65 test files — `test_security.py`
+  and the daemon E2E suite included — ran nowhere automatically, and a tag on a red tree still
+  produced published binaries. New reusable `test.yml` runs the full suite (Windows + macOS,
+  `QT_QPA_PLATFORM=offscreen`) on pull requests and master pushes, and `build` now `needs` it.
+- **Lint gate**: `ruff` now runs in CI with the rule set pinned in `pyproject.toml`, so the
+  finding count is a property of the repo rather than of whoever runs it (the review reported 250
+  from its own invocation). 89 findings auto-fixed, 4 unused locals removed by hand, one
+  deliberate `except: pass` documented — the activity-feed hook runs as a fresh process on every
+  tool use, so there is no "warn once" to be had there. Deliberately not enabled: `BLE001`
+  (48 blind excepts, nearly all documented decisions in recovery paths — that would mean 48
+  `noqa` comments, not 48 fixes), import sorting, and `subprocess`-without-`check`, which needs a
+  per-call judgement rather than a sweep.
+
 ## v1.4.2 — Windows fixes: vendored web asset + UTF-8 stdio (2026-07-17)
 
 ### Fixed

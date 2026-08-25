@@ -1,5 +1,6 @@
 import json
 from brain_mcp.storage.database import BrainDB
+from datetime import UTC
 
 def test_create_tables(tmp_path):
     db = BrainDB(tmp_path / "test.db")
@@ -82,8 +83,8 @@ def test_fts_search(tmp_path):
     db.close()
 
 def test_recent_notes(tmp_path):
-    from datetime import datetime, timezone
-    recent = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    from datetime import datetime
+    recent = datetime.now(UTC).strftime("%Y-%m-%d")
     db = BrainDB(tmp_path / "test.db")
     db.upsert_note(path="old.md", title="Old", content="c", content_hash="h1",
                    region_idx=0, tags=[], word_count=1, created_at="2025-01-01", modified_at="2025-01-01")

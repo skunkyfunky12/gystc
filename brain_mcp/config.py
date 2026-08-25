@@ -125,7 +125,7 @@ def load_config(config_dir: Path | None = None) -> BrainConfig:
     vault_path_str = os.environ.get("BRAIN_VAULT_PATH") or file_data.get("vault_path")
     vault_path = Path(vault_path_str) if vault_path_str else None
 
-    return BrainConfig(
+    config = BrainConfig(
         vault_path=vault_path,
         model_name=os.environ.get("BRAIN_MODEL_NAME") or file_data.get("model_name", DEFAULT_MODEL),
         embedding_backend=file_data.get("embedding_backend", "sentence-transformers"),
@@ -138,3 +138,12 @@ def load_config(config_dir: Path | None = None) -> BrainConfig:
         reranker=file_data.get("reranker", None),
         exclude_dirs=file_data.get("exclude_dirs") or [],
     )
+    # save_config validates; loading did not, so a config.json edited by hand or
+    # written by an older version came back silently and misbehaved somewhere
+    # far from its cause. Warn and keep going: refusing to load would lock the
+    # user out of the very command that fixes the file.
+    errors = validate_config(config)
+    if errors:
+        print(f"WARNING: Config {config_file} has validation issues: "
+              f"{'; '.join(errors)}", file=sys.stderr)
+    return config

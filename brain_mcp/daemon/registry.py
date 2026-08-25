@@ -1,5 +1,8 @@
 from __future__ import annotations
-import json, os, sys, tempfile
+import json
+import os
+import sys
+import tempfile
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
@@ -25,7 +28,8 @@ def write_registry(path: Path, info: DaemonInfo) -> None:
         Path(tmp).unlink(missing_ok=True)
         raise
     if os.name == "nt":
-        import getpass, subprocess
+        import getpass
+        import subprocess
         try:
             subprocess.run(["icacls", str(path), "/inheritance:r",
                             "/grant:r", f"{getpass.getuser()}:F"],

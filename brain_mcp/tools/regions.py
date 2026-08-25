@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 import re
 from brain_mcp.storage.database import BrainDB
-from brain_mcp.tools.recent import REGION_NAMES, resolve_region_idx
+from brain_mcp.tools.recent import resolve_region_idx
 
 def handle_brain_regions(
     db: BrainDB,

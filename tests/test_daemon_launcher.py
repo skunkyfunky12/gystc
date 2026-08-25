@@ -1,4 +1,5 @@
-import os, signal
+import os
+import signal
 import pytest
 from brain_mcp.daemon.registry import DaemonInfo
 from brain_mcp.daemon.launcher import daemon_health_url

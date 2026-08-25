@@ -2,7 +2,6 @@
 import hashlib
 import json
 import sys
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import numpy as np

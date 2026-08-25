@@ -5,7 +5,7 @@ import threading
 import time
 import traceback
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 
 from watchdog.events import (
     FileCreatedEvent,
@@ -50,6 +50,12 @@ class _Handler(FileSystemEventHandler):
             self._cleanup()
         return False
 
+    @staticmethod
+    def _is_markdown(path: str) -> bool:
+        """Case-insensitive: Windows and macOS both hand back the name as it was
+        typed, so a note saved as NOTE.MD is a note the vault must index."""
+        return path.lower().endswith(".md")
+
     def _cleanup(self) -> None:
         now = time.time()
         stale = [k for k, v in self._pending.items() if now - v > PENDING_WRITE_CLEANUP]
@@ -63,25 +69,30 @@ class _Handler(FileSystemEventHandler):
             print(f"Watcher callback error for {path}: {exc}\n{traceback.format_exc()}", file=sys.stderr)
 
     def on_created(self, event: FileCreatedEvent) -> None:
-        if not event.is_directory and event.src_path.endswith(".md"):
+        if not event.is_directory and self._is_markdown(event.src_path):
             if not self._is_excluded(event.src_path) and not self._is_pending(event.src_path):
                 self._dispatch(event.src_path, "created")
 
     def on_modified(self, event: FileModifiedEvent) -> None:
-        if not event.is_directory and event.src_path.endswith(".md"):
+        if not event.is_directory and self._is_markdown(event.src_path):
             if not self._is_excluded(event.src_path) and not self._is_pending(event.src_path):
                 self._dispatch(event.src_path, "modified")
 
     def on_deleted(self, event: FileDeletedEvent) -> None:
-        if not event.is_directory and event.src_path.endswith(".md"):
-            self._dispatch(event.src_path, "deleted")
+        # Same two guards as created/modified. Archiving a folder deletes many
+        # notes at once, and dispatching those would pull exactly the notes the
+        # exclude list exists to keep out back through the change path; a path
+        # the store is mid-write on must not be reported as gone either.
+        if not event.is_directory and self._is_markdown(event.src_path):
+            if not self._is_excluded(event.src_path) and not self._is_pending(event.src_path):
+                self._dispatch(event.src_path, "deleted")
 
     def on_moved(self, event: FileMovedEvent) -> None:
         if event.is_directory:
             return
-        if event.src_path.endswith(".md"):
+        if self._is_markdown(event.src_path):
             self._dispatch(event.src_path, "deleted")
-        if event.dest_path.endswith(".md"):
+        if self._is_markdown(event.dest_path):
             if not self._is_excluded(event.dest_path) and not self._is_pending(event.dest_path):
                 self._dispatch(event.dest_path, "created")
 

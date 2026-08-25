@@ -1,5 +1,4 @@
 """Verify all 8 MCP tools function correctly with timeout enforcement."""
-import json
 import time
 
 import pytest

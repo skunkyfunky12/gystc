@@ -1,4 +1,4 @@
-from brain_mcp.indexer.chunker import split_into_chunks, CHUNK_THRESHOLD_WORDS, MIN_CHUNK_WORDS
+from brain_mcp.indexer.chunker import split_into_chunks, MIN_CHUNK_WORDS
 
 
 def _make_long_content(word_count: int, headings: list[str] | None = None) -> str:

@@ -10,7 +10,7 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import Iterable
+from collections.abc import Iterable
 
 # Skip secrets, trash, derived artifacts, git internals, and already-archived notes.
 _SKIP_DIRS = {".git", ".obsidian", ".trash", "graphify-out", "99 Archiv"}

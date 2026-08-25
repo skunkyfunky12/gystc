@@ -1,8 +1,6 @@
 # tests/test_security.py
 import json
-import pytest
-from pathlib import Path
-from brain_mcp.tools.store import handle_brain_store, sanitize_title
+from brain_mcp.tools.store import handle_brain_store
 from brain_mcp.storage.database import BrainDB
 from brain_mcp.indexer.vector_store import VectorStore
 
@@ -12,7 +10,7 @@ def test_path_traversal_blocked(tmp_path, mock_embedder):
     vault.mkdir()
     db = BrainDB(tmp_path / "test.db")
     vectors = VectorStore(dimension=384)
-    result = handle_brain_store(
+    handle_brain_store(
         db, vectors, mock_embedder, vault,
         title="../../etc/passwd", content="bad", region=None,
         tags=[], folder="", watcher=None,

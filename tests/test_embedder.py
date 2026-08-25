@@ -1,5 +1,5 @@
 import numpy as np
-from brain_mcp.indexer.embedder import EmbeddingBackend, SentenceTransformerBackend
+from brain_mcp.indexer.embedder import SentenceTransformerBackend
 
 
 def test_mock_embedder_implements_protocol(mock_embedder):

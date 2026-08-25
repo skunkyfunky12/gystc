@@ -5,7 +5,7 @@ import sqlite3
 import sys
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 from brain_mcp.storage.migrations import run_migrations
 
@@ -131,7 +131,7 @@ class BrainDB:
             ).fetchone()
             if existing:
                 return existing["id"]
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             cursor = self._conn.execute(
                 """INSERT INTO note_versions
                    (note_id, content_hash, content, title, region_idx, tags, word_count, versioned_at, reason)
@@ -189,7 +189,7 @@ class BrainDB:
             ).fetchone()
             previous = row["faiss_idx"] if row is not None else None
             self._conn.execute("UPDATE notes SET faiss_idx=?, embedded_at=? WHERE id=?",
-                               (faiss_idx, datetime.now(timezone.utc).isoformat(), note_id))
+                               (faiss_idx, datetime.now(UTC).isoformat(), note_id))
             self._conn.commit()
         return previous if previous != faiss_idx else None
 
@@ -202,7 +202,7 @@ class BrainDB:
         batch on the same note (see :meth:`set_faiss_idx`)."""
         if not items:
             return []
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._lock:
             note_ids = [note_id for note_id, _ in items]
             placeholders = ",".join("?" for _ in note_ids)
@@ -320,7 +320,7 @@ class BrainDB:
             if row:
                 # Preserve version history before the CASCADE destroys it (the
                 # watcher fires delete+create on every rename/move).
-                now = datetime.now(timezone.utc).isoformat()
+                now = datetime.now(UTC).isoformat()
                 self._conn.execute(_TOMBSTONE_VERSIONS_SQL, (path, now, row["id"], path))
                 self._conn.execute("INSERT INTO notes_fts(notes_fts, rowid, title, content) VALUES('delete', ?, ?, ?)",
                                    (row["id"], row["title"], row["content"]))
@@ -354,7 +354,7 @@ class BrainDB:
             stale = [r for r in rows if r["path"] not in keep_paths]
             if not stale:
                 return []
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             preserved = 0
             faiss_ids: list[int] = []
             for r in stale:
@@ -515,7 +515,7 @@ class BrainDB:
         return []
 
     def get_recent_notes(self, days: int = 7, region_idx: int | None = None, limit: int = 20) -> list[sqlite3.Row]:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+        cutoff = (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%d")
         with self._lock:
             if region_idx is not None:
                 return self._conn.execute(

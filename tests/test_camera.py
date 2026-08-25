@@ -1,6 +1,5 @@
 """Tests for brain.camera.OrbitCamera — written first (TDD)."""
 import numpy as np
-import pytest
 
 from brain.camera import OrbitCamera
 

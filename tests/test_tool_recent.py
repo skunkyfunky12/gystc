@@ -1,10 +1,10 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 
 from brain_mcp.storage.database import BrainDB
 from brain_mcp.tools.recent import handle_brain_recent
 
 def _seed_db(db):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     yesterday = (now - timedelta(days=1)).isoformat()
     two_days = (now - timedelta(days=2)).isoformat()
     old = (now - timedelta(days=30)).isoformat()

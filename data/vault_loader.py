@@ -1,6 +1,6 @@
 """Scan an entire Obsidian vault and build a graph (nodes + edges)."""
 import re
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 
 _BACKLINK_RE = re.compile(r"\[\[([^\]|#]+?)(?:[|#][^\]]*?)?\]\]")
@@ -64,7 +64,7 @@ def load_vault(vault_path: str) -> tuple[list[dict], list[tuple[int, int]]]:
         backlinks = _BACKLINK_RE.findall(text)
         word_count = len(text.split())
         all_tags = list(set(re.findall(r"#[\w/-]+", text)))
-        mtime = datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc)
+        mtime = datetime.fromtimestamp(f.stat().st_mtime, tz=UTC)
         created = mtime.strftime("%Y-%m-%d")
 
         idx = len(nodes)

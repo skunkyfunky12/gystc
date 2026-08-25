@@ -4,8 +4,7 @@ import json
 import pytest
 
 from brain_mcp.config import (
-    BrainConfig, DEFAULT_MODEL, VALID_LOG_LEVELS,
-    load_config, save_config, validate_config,
+    BrainConfig, DEFAULT_MODEL, load_config, save_config, validate_config,
 )
 
 

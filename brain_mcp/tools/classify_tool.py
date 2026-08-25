@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 
 from brain_mcp.indexer.scanner import REGION_TAG_TO_IDX
@@ -128,7 +128,8 @@ def _update_file_tag(vault_path: Path | None, note_path: str, region_idx: int) -
             text = _BRAIN_TAG_RE.sub(f"#brain/{new_slug}", text, count=1)
         else:
             text = text.rstrip() + f"\n\n#brain/{new_slug}\n"
-        import os, tempfile
+        import os
+        import tempfile
         fd, tmp = tempfile.mkstemp(dir=str(file_path.parent), suffix=".md.tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -167,7 +168,7 @@ def handle_brain_classify_feedback(
 
     # Log correction to JSONL for future keyword improvement
     log_entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "path": path,
         "title": note["title"],
         "old_region_idx": old_idx,

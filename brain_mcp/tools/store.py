@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 
 from typing import TYPE_CHECKING
@@ -32,10 +32,29 @@ IDX_TO_SLUG = {idx: slug for slug, idx in REGION_TAG_TO_IDX.items()}
 REGION_NAME_TO_SLUG = {REGION_NAMES[idx]: slug for idx, slug in IDX_TO_SLUG.items()}
 
 
+# Windows resolves these names to devices no matter the extension or directory,
+# so "CON" would ask the OS for the console instead of creating CON.md. Kept as a
+# fixed set (Windows only defines these) rather than probing the platform: a
+# vault written on macOS is often opened on Windows, so the file must be
+# creatable everywhere, not just where it was stored.
+_WINDOWS_DEVICE_NAMES = frozenset(
+    ["CON", "PRN", "AUX", "NUL"]
+    + [f"COM{i}" for i in range(1, 10)]
+    + [f"LPT{i}" for i in range(1, 10)]
+)
+
+
 def sanitize_title(title: str) -> str:
     title = _TRAVERSAL.sub("", title)
     title = _BAD_CHARS.sub("", title)
-    return title.strip()[:MAX_TITLE_LEN]
+    title = title.strip()[:MAX_TITLE_LEN]
+    # The device name is whatever precedes the first dot, so "CON.backup" is
+    # reserved too. A trailing underscore is enough to make the name ordinary
+    # and keeps the title readable.
+    stem, dot, rest = title.partition(".")
+    if stem.strip().upper() in _WINDOWS_DEVICE_NAMES:
+        title = f"{stem}_{dot}{rest}"
+    return title
 
 
 def handle_brain_store(
@@ -114,7 +133,7 @@ def handle_brain_store(
 
     rel_path = str(target.relative_to(vault_root)).replace("\\", "/")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     content_hash = compute_content_hash(content)
     word_count = len(content.split())
 

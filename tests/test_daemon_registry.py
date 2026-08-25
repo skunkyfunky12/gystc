@@ -17,7 +17,8 @@ def test_read_corrupt_returns_none(tmp_path):
     assert read_registry(p) is None
 
 def test_file_is_owner_only_readable(tmp_path):
-    import os, stat
+    import os
+    import stat
     p = tmp_path / "daemon.json"
     write_registry(p, DaemonInfo(port=1, token="t", pid=2))
     mode = stat.S_IMODE(os.stat(p).st_mode)

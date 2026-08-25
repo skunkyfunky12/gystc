@@ -1,5 +1,6 @@
 from __future__ import annotations
-import json, sys
+import json
+import sys
 import httpx
 from brain_mcp.config import load_config
 from brain_mcp.daemon.launcher import ensure_daemon
@@ -25,6 +26,11 @@ def forward_one(url: str, token: str, msg: dict, client: httpx.Client | None = N
         r = client.post(url, headers={**_HEADERS, "Authorization": f"Bearer {token}"}, json=msg)
         if r.status_code == 202 or not r.content:
             return None
+        # An HTTP error body is not a JSON-RPC response. Passing one through
+        # handed the client {"error": ...} where it expected a result, and hid
+        # the real cause -- a 401 means the registry token is stale, which is
+        # exactly what _forward_with_recovery repairs by respawning the daemon.
+        r.raise_for_status()
         return r.json()
     finally:
         if own:
