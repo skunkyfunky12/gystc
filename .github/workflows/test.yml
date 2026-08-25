@@ -13,6 +13,12 @@ on:
     branches: [master]
   workflow_call:
 
+# Declared here rather than inherited: a reusable workflow receives the caller's
+# token permissions, and build.yml is invoked on release tags. Tests need to read
+# the repository and nothing else.
+permissions:
+  contents: read
+
 jobs:
   lint:
     # Cheap and platform-independent, so it runs once rather than per OS. The
