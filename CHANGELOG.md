@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.4.3 - external review follow-up: index integrity, dashboard API auth, CI gates (2026-08-25)
 
 ### Fixed
 - **Reading the stats could delete the vector index** (external review 2026-08-23, finding 4 —
