@@ -21,6 +21,17 @@
   raw `sqlite3` connection had no busy timeout — a live writer could turn the panel into a
   bare "database is locked". Now `PRAGMA busy_timeout = 5000` and a stderr line.
 
+- **Rejected POSTs answered with an RST instead of a status on macOS**: found by the new CI
+  gate on its first run. A handler that answers 401/403/404 without reading the request body
+  leaves the received bytes in the socket; `BaseHTTPRequestHandler` then closes the connection,
+  and on BSD/macOS closing a socket that still holds unread data sends an RST rather than a FIN.
+  The client raises `ConnectionResetError` instead of seeing the status just written — a hook
+  post rejected for a stale token reported "connection reset by peer", pointing debugging at the
+  network instead of at the token. Windows and Linux tolerate the same code, which is why three
+  long-standing activity-feed tests only went red once the suite started running on macOS. All
+  three rejection paths (activity feed 401/403, dashboard 404) now drain the body first, bounded
+  by `MAX_DRAIN_BODY`.
+
 ### CI
 - **Tests now gate every pull request and every release** (finding 2): `build.yml` was the only
   workflow and triggered solely on `push: tags: v*`, so the 65 test files — `test_security.py`

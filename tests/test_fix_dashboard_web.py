@@ -420,3 +420,59 @@ def test_stats_reports_zero_vectors_when_no_index_exists(web_server):
 
     assert code == 200
     assert json.loads(body)["vectors"] == 0
+
+
+# ----------------------------------- CI finding 2026-08-25 (macos-latest, run 1)
+# A handler that answers 401/403/404 without reading the request body leaves the
+# received bytes sitting in the socket. BaseHTTPRequestHandler then closes the
+# connection -- and on BSD/macOS closing a socket that still holds unread data
+# sends an RST instead of a FIN, so the client raises ConnectionResetError
+# instead of seeing the status we just wrote. Windows and Linux tolerate it,
+# which is why three long-standing activity-feed tests only went red once CI
+# started running the suite on macOS. A rejected hook post must report "401",
+# not "connection reset by peer", or debugging points at the network instead of
+# at the token. Asserted white-box so it holds on every platform.
+
+def _run_post_with_body(handler_cls, headers, body=b'{"tag":"X","text":"t"}', **attrs):
+    """Drive one do_POST against a handler instance with a real body buffer."""
+    import io
+    handler = object.__new__(handler_cls)
+    for name, value in attrs.items():
+        setattr(handler, name, value)
+    handler.headers = {"Content-Length": str(len(body)), **headers}
+    handler.rfile = io.BytesIO(body)
+    sent = []
+    handler.send_response = lambda code, *a: sent.append(code)
+    handler.end_headers = lambda: None
+    handler.do_POST()
+    return sent, handler.rfile.read()
+
+
+def test_activity_reject_without_token_drains_body(activity_server):
+    from brain.web_widget import _make_activity_handler
+    handler_cls = _make_activity_handler(weakref.ref(_FakeWidget()), "irrelevant")
+
+    sent, leftover = _run_post_with_body(handler_cls, {})
+
+    assert sent == [401]
+    assert leftover == b"", "unread body -> RST instead of 401 on macOS"
+
+
+def test_activity_reject_with_origin_drains_body(activity_server):
+    from brain.web_widget import _make_activity_handler
+    handler_cls = _make_activity_handler(weakref.ref(_FakeWidget()), "irrelevant")
+
+    sent, leftover = _run_post_with_body(handler_cls, {"Origin": "http://evil.example"})
+
+    assert sent == [403]
+    assert leftover == b"", "unread body -> RST instead of 403 on macOS"
+
+
+def test_web_handler_unknown_post_path_drains_body(tmp_path):
+    from brain.web_widget import _make_web_handler
+    handler_cls = _make_web_handler(tmp_path)
+
+    sent, leftover = _run_post_with_body(handler_cls, {}, path="/api/nope")
+
+    assert sent == [404]
+    assert leftover == b"", "unread body -> RST instead of 404 on macOS"

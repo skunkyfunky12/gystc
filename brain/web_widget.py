@@ -28,6 +28,32 @@ ACTIVITY_PORT = 9500
 
 CONFIG_API_MAX_BODY = 8192
 SEARCH_API_MAX_BODY = 8192
+# Upper bound for discarding the body of a request we are rejecting; a hostile
+# Content-Length must not make us read forever.
+MAX_DRAIN_BODY = 65536
+
+
+def _drain_request_body(handler) -> None:
+    """Consume the request body of a request we answer without reading it.
+
+    BaseHTTPRequestHandler closes the connection when the request ends, and on
+    BSD/macOS closing a socket that still holds unread received data sends an
+    RST instead of a FIN -- the client then raises ConnectionResetError instead
+    of seeing the status just written. A rejected activity-feed post would
+    report "connection reset by peer" rather than 401, pointing debugging at the
+    network instead of at the token. Windows and Linux tolerate the same code,
+    which is why this only surfaced once CI started running the suite on macOS.
+    """
+    try:
+        length = int(handler.headers.get("Content-Length", 0) or 0)
+    except (TypeError, ValueError):
+        return
+    if length <= 0:
+        return
+    try:
+        handler.rfile.read(min(length, MAX_DRAIN_BODY))
+    except OSError as exc:
+        print(f"drain request body: {exc}", file=sys.stderr)
 
 # Module-level search state cache (lazy-loaded)
 _search_state_cache: dict = {}
@@ -83,6 +109,7 @@ def _make_web_handler(directory: Path):
             elif self.path == "/api/search":
                 self._handle_search()
             else:
+                _drain_request_body(self)
                 self.send_response(404)
                 self.end_headers()
 
@@ -369,6 +396,7 @@ def _make_activity_handler(widget_ref, token: str):
 
         def do_POST(self):
             if self.headers.get("Origin") is not None:
+                _drain_request_body(self)
                 self.send_response(403)
                 self.end_headers()
                 return
@@ -388,6 +416,7 @@ def _make_activity_handler(widget_ref, token: str):
                         "(writers must send 'Authorization: Bearer <data_dir>/activity_token')",
                         file=sys.stderr,
                     )
+                _drain_request_body(self)
                 self.send_response(401)
                 self.end_headers()
                 return
