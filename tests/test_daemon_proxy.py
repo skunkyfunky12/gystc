@@ -34,6 +34,12 @@ def test_forward_returns_json_response():
 def test_forward_returns_none_on_202():
     class H(BaseHTTPRequestHandler):
         def do_POST(self):
+            # Read the body before answering: BaseHTTPRequestHandler closes the
+            # connection at the end of the request, and on BSD/macOS a socket
+            # still holding unread received data sends an RST instead of a FIN,
+            # so the client raises ECONNRESET instead of seeing the 202. The
+            # same shape was a real bug in brain/web_widget.py's reject paths.
+            self.rfile.read(int(self.headers.get("Content-Length", 0) or 0))
             self.send_response(202); self.end_headers()
         def log_message(self,*a): pass
     srv = _serve(H); port = srv.server_address[1]
