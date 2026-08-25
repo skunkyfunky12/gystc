@@ -1,3 +1,16 @@
+// Every /api/* route requires the per-session bearer token that the Qt host
+// injects as window.__apiToken before this script runs (see _setup_page in
+// brain/web_widget.py). The dashboard's HTTP server listens on an ephemeral
+// 127.0.0.1 port, which any local process can scan for -- the token is what
+// makes the port a boundary rather than an obstacle.
+function apiFetch(path, options) {
+  const opts = Object.assign({}, options);
+  opts.headers = Object.assign({}, opts.headers, {
+    'Authorization': 'Bearer ' + (window.__apiToken || ''),
+  });
+  return fetch(path, opts);
+}
+
 // Bridge: accept real graph data from Python host (set by QWebEngineScript before module load)
 window.__graphData = window.__graphData || null;
 window.__onNodeClick = window.__onNodeClick || null;
@@ -1325,8 +1338,8 @@ function buildMappingRow(folder, idx) {
 async function loadSettings() {
   try {
     const [cfgRes, statsRes] = await Promise.all([
-      fetch('/api/config'),
-      fetch('/api/stats'),
+      apiFetch('/api/config'),
+      apiFetch('/api/stats'),
     ]);
     if (!cfgRes.ok || !statsRes.ok) throw new Error('API error: ' + cfgRes.status);
     const cfg = await cfgRes.json();
@@ -1383,7 +1396,7 @@ async function loadSettings() {
 
 async function saveSettingField(key, value, revertFn) {
   try {
-    const res = await fetch('/api/config', {
+    const res = await apiFetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ [key]: value }),
@@ -1418,7 +1431,7 @@ reindexBtn.addEventListener('click', async () => {
   reindexBtn.textContent = 'Indexing...';
   statusEl.textContent = '';
   try {
-    const res = await fetch('/api/reindex', { method: 'POST' });
+    const res = await apiFetch('/api/reindex', { method: 'POST' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     if (data.error) {
@@ -1542,7 +1555,7 @@ async function semanticSearch(query) {
   const controller = new AbortController();
   _semanticAbort = controller;
   try {
-    const res = await fetch('/api/search', {
+    const res = await apiFetch('/api/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, limit: 20 }),

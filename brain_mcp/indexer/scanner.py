@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 
 _BACKLINK_RE = re.compile(r"\[\[([^\]|#]+?)(?:[|#][^\]]*?)?\]\]")
@@ -58,7 +58,18 @@ def parse_note_file(file_path: Path, vault_root: Path, folder_to_region: dict[st
     # --- metadata ---
     word_count = len(text.split())
     all_tags = list(set(re.findall(r"#[\w/-]+", text)))
-    mtime = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc)
+    stat = file_path.stat()
+    mtime = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
+    # Real creation time where the platform keeps one: st_birthtime on
+    # macOS/BSD, st_ctime on Windows (there it IS the creation time, unlike
+    # POSIX where it is the inode-change time). Linux exposes neither through
+    # stat(), so mtime stays the best available guess. Never later than mtime:
+    # a copied file gets a fresh creation stamp, and a note that reads
+    # "created after it was last edited" is worse than a slightly early date.
+    birth = getattr(stat, "st_birthtime", None)
+    if birth is None and sys.platform == "win32":
+        birth = stat.st_ctime
+    created = min(datetime.fromtimestamp(birth, tz=UTC), mtime) if birth else mtime
 
     return {
         "path": str(rel).replace("\\", "/"),
@@ -68,7 +79,7 @@ def parse_note_file(file_path: Path, vault_root: Path, folder_to_region: dict[st
         "region_idx": region_idx,
         "tags": all_tags[:20],
         "word_count": word_count,
-        "created_at": mtime.strftime("%Y-%m-%d"),
+        "created_at": created.strftime("%Y-%m-%d"),
         "modified_at": mtime.isoformat(),
         "backlink_titles": [bl.strip() for bl in backlinks],
     }

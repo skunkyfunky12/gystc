@@ -7,7 +7,6 @@ import os
 import sys
 import threading
 import time
-from functools import partial
 from http.server import HTTPServer, SimpleHTTPRequestHandler, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from pathlib import Path
@@ -80,18 +79,88 @@ def _get_search_state():
     return state
 
 
-def _make_web_handler(directory: Path):
-    """HTTP handler that serves static files AND a /api/config endpoint."""
+def _reset_search_state() -> None:
+    """Drop the cached (db, vectors, embedder) triple and close the database.
+
+    The cache lives for the life of the process, so nothing ever released the
+    sqlite handle. Called on widget teardown, and available whenever the state
+    it was built from stops being true.
+    """
+    state = _search_state_cache.pop("instance", None)
+    if state is None:
+        return
+    db = state[0]
+    try:
+        db.close()
+    except Exception as exc:
+        print(f"search state: closing the database failed: {exc}", file=sys.stderr)
+
+
+def _origin_allowed(handler) -> bool:
+    """True when the request did not come from a foreign browser origin.
+
+    A same-origin GET carries no Origin header at all, and a same-origin POST
+    carries our own -- Chrome sends Origin on every POST, so rejecting the
+    header outright (what the activity feed can afford on its fixed port, where
+    the only legitimate writer is urllib) would break the dashboard's own page.
+    """
+    origin = handler.headers.get("Origin")
+    if origin is None:
+        return True
+    try:
+        port = handler.server.server_address[1]
+    except (AttributeError, IndexError):
+        return False
+    return origin in (f"http://127.0.0.1:{port}", f"http://localhost:{port}")
+
+
+def _make_web_handler(directory: Path, token: str):
+    """HTTP handler serving the dashboard's static files and its /api/* endpoints.
+
+    Every /api/* route requires the per-session bearer *token*. The endpoints run
+    on an ephemeral 127.0.0.1 port, which is not a boundary: any local process
+    can scan for it, and /api/vault/<path> serves any note or attachment in the
+    vault while POST /api/config rewrites the configuration. The activity feed on
+    the fixed port 9500 has had a token and an origin check since the last audit;
+    this brings the rest of the surface up to the same bar. The token never
+    leaves the process pair that needs it -- BrainWebWidget injects it into its own
+    page via QWebEngineScript, so a browser tab that guesses the port still
+    cannot read it, and the CORS preflight for a custom Authorization header
+    never gets an answer.
+
+    Static files stay open: the page shell has to load before any script can send
+    a token, and it carries no vault data.
+    """
 
     class WebHandler(SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=str(directory), **kwargs)
+
+        def _api_allowed(self) -> bool:
+            """Guard for /api/*. Answers the request itself when it refuses."""
+            if not _origin_allowed(self):
+                _drain_request_body(self)
+                self.send_response(403)
+                self.end_headers()
+                return False
+            auth = self.headers.get("Authorization", "")
+            # Constant-time, over bytes: str-mode compare_digest raises
+            # TypeError on non-ASCII input, which a hostile header could send.
+            if not hmac.compare_digest(auth.encode("utf-8", "replace"),
+                                       f"Bearer {token}".encode()):
+                _drain_request_body(self)
+                self.send_response(401)
+                self.end_headers()
+                return False
+            return True
 
         def end_headers(self):
             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
             super().end_headers()
 
         def do_GET(self):
+            if self.path.startswith("/api/") and not self._api_allowed():
+                return
             if self.path == "/api/config":
                 self._handle_config_get()
             elif self.path == "/api/stats":
@@ -102,6 +171,8 @@ def _make_web_handler(directory: Path):
                 super().do_GET()
 
         def do_POST(self):
+            if self.path.startswith("/api/") and not self._api_allowed():
+                return
             if self.path == "/api/config":
                 self._handle_config_post()
             elif self.path == "/api/reindex":
@@ -226,10 +297,21 @@ def _make_web_handler(directory: Path):
                     })
                     return
                 try:
-                    db = BrainDB(config.db_path)
+                    # Reuse whatever a previous search already loaded. Building a
+                    # second embedder here put two models in one process, and
+                    # rebuilding into a private VectorStore left the cached one --
+                    # the store search answers from -- holding the pre-reindex
+                    # index until the dashboard restarted. Both objects carry
+                    # their own lock, so sharing them across handler threads is
+                    # safe.
+                    cached = _search_state_cache.get("instance")
+                    db = cached[0] if cached else BrainDB(config.db_path)
                     try:
-                        embedder = SentenceTransformerBackend(config.model_name)
-                        vectors = VectorStore.load(config.index_path, dimension=embedder.dimension)
+                        if cached:
+                            _, vectors, embedder = cached
+                        else:
+                            embedder = SentenceTransformerBackend(config.model_name)
+                            vectors = VectorStore.load(config.index_path, dimension=embedder.dimension)
                         # Same consistency gate as the MCP writer paths: stamps
                         # without vectors (corrupt index deleted by load(), or a
                         # writer crash before the first save) block re-embedding
@@ -246,7 +328,8 @@ def _make_web_handler(directory: Path):
                         elapsed = round(time.time() - t0, 1)
                         self._json_response(200, {"indexed": count, "elapsed": elapsed})
                     finally:
-                        db.close()
+                        if not cached:
+                            db.close()   # the cached handle outlives this request
                 finally:
                     lock.release()
             except Exception as e:
@@ -357,8 +440,8 @@ class _ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
 
 
-def _start_local_server(directory: Path, port: int = 0) -> tuple[HTTPServer, int]:
-    handler = _make_web_handler(directory)
+def _start_local_server(directory: Path, token: str, port: int = 0) -> tuple[HTTPServer, int]:
+    handler = _make_web_handler(directory, token)
     server = _ThreadingHTTPServer(("127.0.0.1", port), handler)
     actual_port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -406,7 +489,7 @@ def _make_activity_handler(widget_ref, token: str):
             # compare_digest raises TypeError on non-ASCII input, which a
             # hostile header could trigger.
             if not hmac.compare_digest(auth.encode("utf-8", "replace"),
-                                       f"Bearer {token}".encode("utf-8")):
+                                       f"Bearer {token}".encode()):
                 # Warn once per session, not per rejected request (the hook
                 # fires on every tool use until it adopts the token file).
                 if not ActivityHandler._warned_unauthorized:
@@ -475,9 +558,25 @@ class BrainWebWidget(QWebEngineView):
 
         self._graph_json = self._build_graph_json()
 
-        self._server, self._port = _start_local_server(_WEB_DIR)
+        # Per-session token for this widget's own /api/* calls. Injected into
+        # the page below (QWebEngineScript, DocumentCreation) so it exists
+        # before brain-app.js runs and never leaves this process pair.
+        import secrets
+        self._api_token = secrets.token_hex(16)
+        self._server, self._port = _start_local_server(_WEB_DIR, self._api_token)
         self._start_activity_server()
         self._setup_page()
+
+    def closeEvent(self, event):
+        """Release the sqlite handle behind the cached search state.
+
+        The cache is module-level and lived for the whole process, so closing
+        the dashboard left the database open. The HTTP servers deliberately stay
+        bound: the widget can be reopened, and _get_search_state() rebuilds the
+        triple lazily on the next search.
+        """
+        _reset_search_state()
+        super().closeEvent(event)
 
     def _start_activity_server(self):
         import secrets
@@ -569,6 +668,7 @@ class BrainWebWidget(QWebEngineView):
         page.setWebChannel(self._channel)
 
         script_src = f"""
+        window.__apiToken = "{self._api_token}";
         window.__graphData = {self._graph_json};
         window.__onNodeClick = function(nodeId, title) {{
             if (window.bridge) {{

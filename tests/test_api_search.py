@@ -1,7 +1,7 @@
 import json
 import threading
 from http.server import HTTPServer
-from pathlib import Path
+import secrets
 from urllib.request import Request, urlopen
 
 import pytest
@@ -46,7 +46,8 @@ def test_search_endpoint_returns_results(tmp_path):
 
     _search_state_cache["instance"] = (db, vectors, embedder)
 
-    handler_cls = _make_web_handler(tmp_path)
+    token = secrets.token_hex(16)
+    handler_cls = _make_web_handler(tmp_path, token)
     server = HTTPServer(("127.0.0.1", 0), handler_cls)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -57,7 +58,8 @@ def test_search_endpoint_returns_results(tmp_path):
         req = Request(
             f"http://127.0.0.1:{port}/api/search",
             data=body,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json",
+                     "Authorization": "Bearer " + token},
             method="POST",
         )
         resp = urlopen(req, timeout=5)
@@ -80,7 +82,8 @@ def test_search_endpoint_empty_query(tmp_path):
     vectors = VectorStore(dimension=384)
     _search_state_cache["instance"] = (db, vectors, embedder)
 
-    handler_cls = _make_web_handler(tmp_path)
+    token = secrets.token_hex(16)
+    handler_cls = _make_web_handler(tmp_path, token)
     server = HTTPServer(("127.0.0.1", 0), handler_cls)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -91,7 +94,8 @@ def test_search_endpoint_empty_query(tmp_path):
         req = Request(
             f"http://127.0.0.1:{port}/api/search",
             data=body,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json",
+                     "Authorization": "Bearer " + token},
             method="POST",
         )
         resp = urlopen(req, timeout=5)
@@ -113,7 +117,8 @@ def test_search_endpoint_body_limit(tmp_path):
     vectors = VectorStore(dimension=384)
     _search_state_cache["instance"] = (db, vectors, embedder)
 
-    handler_cls = _make_web_handler(tmp_path)
+    token = secrets.token_hex(16)
+    handler_cls = _make_web_handler(tmp_path, token)
     server = HTTPServer(("127.0.0.1", 0), handler_cls)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -124,7 +129,8 @@ def test_search_endpoint_body_limit(tmp_path):
         req = Request(
             f"http://127.0.0.1:{port}/api/search",
             data=body,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json",
+                     "Authorization": "Bearer " + token},
             method="POST",
         )
         with pytest.raises(HTTPError) as exc_info:
