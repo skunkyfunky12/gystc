@@ -1,0 +1,54 @@
+name: SonarCloud
+
+# gystc ist oeffentlich -> SonarCloud (SonarQube Cloud) ist hier kostenlos.
+# Bewusst ein IN-REPO-Setup, im Gegensatz zur "Automatic Analysis", die
+# unsichtbar in SonarCloud eingestellt wird. Der Lauf ist absichtlich leicht:
+# keine Abhaengigkeiten, keine Tests -> schnell und verlaesslich. Coverage kann
+# spaeter daraufgesetzt werden.
+#
+# ZWEI DINGE SIND NOETIG, BEVOR DAS HIER ETWAS MISST (beides nur ueber die
+# Weboberflaeche, Stand 27.08.2026 ist KEINES davon gesetzt):
+#   1. Repo-Secret `SONAR_TOKEN` (Settings -> Secrets and variables -> Actions).
+#   2. Repo-Variable `SONAR_ENABLED` = `true` im selben Dialog, Reiter Variables.
+#   3. In SonarCloud die "Automatic Analysis" fuer dieses Projekt ABSCHALTEN.
+#      Beides gleichzeitig geht nicht - der CI-Lauf bricht sonst mit
+#      "You are running CI analysis while Automatic Analysis is enabled" ab.
+#      Diese Zeile steht hier, weil genau daran der naechste Versuch scheitern
+#      wuerde und die Fehlermeldung erst nach dem Einrichten sichtbar wird.
+#
+# WARUM DER SCHALTER AM JOB HAENGT UND NICHT AM SCHRITT:
+# Die erste Fassung sprang INNERHALB des Jobs ab, wenn kein Token da war. Der
+# Job lief damit durch und meldete gruen - 70 Tage lang stand am PR ein gruener
+# "SonarCloud Scan", der nie etwas analysiert hat. Eine Pruefung, die gruen
+# meldet ohne zu pruefen, ist schlimmer als keine. Haengt der Schalter am Job,
+# zeigt GitHub ihn als "skipped" - ehrlich sichtbar, nie gruen.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  sonar:
+    name: SonarCloud Scan
+    # Nicht eingerichtet -> Job wird uebersprungen (grau), nicht gruen gemeldet.
+    if: vars.SONAR_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      # Actions auf volle Commit-SHAs gepinnt (Lieferketten-Haertung); Kommentar = Tag.
+      # Ein beweglicher Tag wie @v4 kann jederzeit auf anderen Code zeigen - in
+      # einem oeffentlichen Repo zaehlt das doppelt.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0 # volle Historie -> korrekte Zuordnung von neuem Code
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@2f77a1ec69fb1d595b06f35ab27e97605bdef703 # v5.3.2
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
