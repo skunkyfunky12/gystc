@@ -41,7 +41,21 @@ def _fatal(app: QApplication, msg: str):
     sys.exit(1)
 
 
+def _selfcheck_report_path(argv: list[str]) -> Path:
+    """Report path for --selfcheck: the argument after it, or a default."""
+    idx = argv.index("--selfcheck")
+    if idx + 1 < len(argv) and not argv[idx + 1].startswith("-"):
+        return Path(argv[idx + 1])
+    return Path.cwd() / "gystc-selfcheck.json"
+
+
 def main():
+    # Runs before QApplication on purpose: the check must work on a build
+    # machine with no display, and must never open a window.
+    if "--selfcheck" in sys.argv:
+        from brain.selfcheck import run_selfcheck
+        sys.exit(run_selfcheck(_selfcheck_report_path(sys.argv)))
+
     app = QApplication(sys.argv)
     icon_path = _find_icon()
     if icon_path:
