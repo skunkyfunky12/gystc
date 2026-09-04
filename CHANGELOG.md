@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased - the released binary can actually search
+## v1.4.4 - the released binary can actually search (2026-09-04)
 
 ### Fixed
 - **A rejected oversized request aborted the connection instead of answering 413** (found by
