@@ -157,16 +157,34 @@ def test_embedder_loads_the_bundled_directory(tmp_path, monkeypatch):
 # The self-check itself
 # --------------------------------------------------------------------------
 
-def test_selfcheck_fails_and_reports_when_the_model_is_missing(tmp_path, monkeypatch):
-    from brain import selfcheck
+def test_selfcheck_fails_and_reports_when_the_model_is_missing(tmp_path):
+    """End-to-end through the real entry point, in its own process.
 
-    monkeypatch.setattr(bundled_model, "bundled_model_dir", lambda *_: None)
+    A subprocess is not incidental here. --selfcheck is a CLI entry point, and
+    it imports the whole ML stack; pulling that into the pytest process loads
+    torch beside an already-imported faiss and next to the background threads
+    other tests leave behind, which aborted the macOS runner outright. Running
+    it the way the build runs it keeps the suite honest and isolated.
+    """
+    empty = tmp_path / "no-model"
+    empty.mkdir()
     report = tmp_path / "selfcheck.json"
 
-    assert selfcheck.run_selfcheck(report) == 1
+    env = dict(os.environ)
+    env[bundled_model.ENV_VAR] = str(empty)  # deterministic "no model", even
+    env["QT_QPA_PLATFORM"] = "offscreen"     # on a checkout that has one
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "main.py"), "--selfcheck", str(report)],
+        cwd=ROOT, env=env, capture_output=True, text=True, timeout=600,
+    )
 
+    assert proc.returncode == 1, (
+        f"expected a clean failure, got {proc.returncode}\n"
+        f"--- stdout ---\n{proc.stdout[-4000:]}\n--- stderr ---\n{proc.stderr[-4000:]}"
+    )
     payload = json.loads(report.read_text(encoding="utf-8"))
     assert payload["ok"] is False
+    assert payload["frozen"] is False
     names = {step["name"] for step in payload["steps"]}
     assert {"runtime_packages", "brain_mcp_modules", "embedding_model"} <= names
     model_step = next(s for s in payload["steps"] if s["name"] == "embedding_model")
@@ -178,11 +196,13 @@ def test_selfcheck_survives_a_windowed_build_without_stdout(tmp_path, monkeypatc
     """console=False leaves sys.stdout/stderr as None -- printing must not crash."""
     from brain import selfcheck
 
-    monkeypatch.setattr(bundled_model, "bundled_model_dir", lambda *_: None)
+    monkeypatch.setattr(selfcheck, "_run_steps",
+                        lambda: [{"name": "stub", "ok": False, "detail": ""}])
     monkeypatch.setattr(sys, "stdout", None)
     monkeypatch.setattr(sys, "stderr", None)
 
     assert selfcheck.run_selfcheck(tmp_path / "r.json") == 1
+    assert json.loads((tmp_path / "r.json").read_text(encoding="utf-8"))["ok"] is False
 
 
 def test_selfcheck_blocks_the_hub_before_running_any_check(tmp_path, monkeypatch):
