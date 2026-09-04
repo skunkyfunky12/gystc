@@ -3,6 +3,15 @@
 ## Unreleased - the released binary can actually search
 
 ### Fixed
+- **A rejected oversized request aborted the connection instead of answering 413** (found by
+  the Windows runner on the very build this section is about). The 2026-08-25 fix drained the
+  body on 401/403/404 but left all three 413 paths alone — the one status that by definition has
+  a large unread body waiting in the socket. `BaseHTTPRequestHandler` then closes the connection
+  and the client sees `WinError 10053` / an RST instead of the status just written, which is
+  why `test_search_endpoint_body_limit` failed at random rather than always. `MAX_DRAIN_BODY`
+  also equalled `_MAX_ACTIVITY_BODY` exactly, so a body one byte over the activity limit could
+  never be fully drained; the cap now sits above every endpoint limit, with a test that fails if
+  a future limit grows past it.
 - **The packaged dashboard shipped without its own runtime** (external review 2026-09-03,
   finding 6 — severity raised on verification: the review called it a build risk, measuring the
   artifact showed it was already broken). The release workflow installed a hand-written list —

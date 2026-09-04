@@ -28,8 +28,12 @@ ACTIVITY_PORT = 9500
 CONFIG_API_MAX_BODY = 8192
 SEARCH_API_MAX_BODY = 8192
 # Upper bound for discarding the body of a request we are rejecting; a hostile
-# Content-Length must not make us read forever.
-MAX_DRAIN_BODY = 65536
+# Content-Length must not make us read forever. It has to stay ABOVE the largest
+# endpoint body limit (_MAX_ACTIVITY_BODY, 64 KiB), or a body that merely
+# overshoots that limit cannot be drained completely -- and the leftover bytes
+# abort the connection under the 413 we just wrote. Guarded by
+# test_drain_cap_exceeds_every_body_limit.
+MAX_DRAIN_BODY = 262144
 
 
 def _drain_request_body(handler) -> None:
@@ -207,6 +211,12 @@ def _make_web_handler(directory: Path, token: str):
                     self._json_response(400, {"error": "Empty request body"})
                     return
                 if length > CONFIG_API_MAX_BODY:
+                    # Drain first: answering 413 without reading leaves the body
+                    # in the socket, and the close then aborts the connection
+                    # before the client has read the status (RST on macOS,
+                    # WinError 10053 on Windows). 413 is the one status where
+                    # that unread body is guaranteed to be there.
+                    _drain_request_body(self)
                     self._json_response(413, {"error": "Body too large"})
                     return
                 body = self.rfile.read(length).decode("utf-8")
@@ -339,6 +349,9 @@ def _make_web_handler(directory: Path, token: str):
             try:
                 length = int(self.headers.get("Content-Length", 0))
                 if length == 0 or length > SEARCH_API_MAX_BODY:
+                    # See _handle_config_post: an unread body turns the status
+                    # we just wrote into a connection abort at the client.
+                    _drain_request_body(self)
                     self._json_response(413 if length > SEARCH_API_MAX_BODY else 400,
                                         {"error": "Invalid body size"})
                     return
@@ -505,6 +518,9 @@ def _make_activity_handler(widget_ref, token: str):
                 return
             length = int(self.headers.get("Content-Length", 0))
             if length > _MAX_ACTIVITY_BODY:
+                # Same reason as the dashboard's 413 paths: read before you
+                # answer, or the close aborts the connection under the status.
+                _drain_request_body(self)
                 self.send_response(413)
                 self.end_headers()
                 return
