@@ -194,6 +194,8 @@ def test_selfcheck_blocks_the_hub_before_running_any_check(tmp_path, monkeypatch
     """
     from brain import selfcheck
 
+    before_home = os.environ.get("HF_HOME")
+    before_offline = os.environ.get("HF_HUB_OFFLINE")
     seen: dict[str, str | None] = {}
 
     def _capture():
@@ -210,6 +212,10 @@ def test_selfcheck_blocks_the_hub_before_running_any_check(tmp_path, monkeypatch
 
     assert seen["offline"] == "1"
     assert seen["transformers"] == "1"
+    # ...and put back afterwards, so the check cannot steer later model loads
+    # in the same process at a directory it has already deleted.
+    assert os.environ.get("HF_HOME") == before_home
+    assert os.environ.get("HF_HUB_OFFLINE") == before_offline
     # A cache the build just warmed would hide a missing file in the bundle.
     assert seen["home"] and seen["home_entries"] == []
 

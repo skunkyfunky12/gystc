@@ -95,6 +95,22 @@ def _ensure_streams() -> io.StringIO:
     return sink
 
 
+_OFFLINE_VARS = (
+    "HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_HOME", "HF_HUB_DISABLE_TELEMETRY",
+)
+
+
+def _restore_env(saved: dict[str, str | None]) -> None:
+    """Put the environment back. The frozen binary exits right after, but in a
+    test process these variables would otherwise outlive the check and steer
+    every later model load at a directory that no longer exists."""
+    for key, value in saved.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+
+
 def _force_offline(scratch: Path) -> None:
     """Cut every route to the Hugging Face hub, before anything imports it.
 
@@ -224,6 +240,7 @@ def run_selfcheck(report_path: Path | None = None) -> int:
     """Run every check, write a JSON report, return a process exit code."""
     sink = _ensure_streams()
     scratch = Path(tempfile.mkdtemp(prefix="gystc-selfcheck-env-"))
+    saved = {key: os.environ.get(key) for key in _OFFLINE_VARS}
     try:
         _force_offline(scratch)
         steps = _run_steps()
@@ -232,6 +249,7 @@ def run_selfcheck(report_path: Path | None = None) -> int:
         steps = []
         crash = traceback.format_exc()
     finally:
+        _restore_env(saved)
         shutil.rmtree(scratch, ignore_errors=True)
 
     ok = bool(steps) and all(step["ok"] for step in steps) and crash is None
