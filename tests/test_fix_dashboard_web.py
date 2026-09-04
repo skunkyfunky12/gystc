@@ -483,6 +483,94 @@ def test_web_handler_unknown_post_path_drains_body(tmp_path):
     assert leftover == b"", "unread body -> RST instead of 404 on macOS"
 
 
+# ----------------------------------- CI finding 2026-09-04 (windows-latest)
+# The 2026-08-25 fix above drained 401/403/404 but left the three 413 paths
+# alone -- the one status that by definition has a large unread body sitting in
+# the socket. `test_search_endpoint_body_limit` went red on the Windows runner
+# with WinError 10053 ("connection aborted by the software in your host
+# machine") instead of the 413 the server had just written. Same class as the
+# macOS RST, opposite platform, and intermittent because it is a race: whether
+# the client reads the response before the close takes the socket down. A
+# release gate that fails at random is worth as little as one that never fails.
+
+def _run_web_post(handler_cls, path, body, headers):
+    """Drive one do_POST through the dashboard handler with a real body buffer."""
+    import io
+    handler = object.__new__(handler_cls)
+    handler.path = path
+    handler.headers = {"Content-Length": str(len(body)), **headers}
+    handler.rfile = io.BytesIO(body)
+    sent = []
+    handler._json_response = lambda code, payload: sent.append(code)
+    handler.send_response = lambda code, *a: sent.append(code)
+    handler.end_headers = lambda: None
+    handler.do_POST()
+    return sent, handler.rfile.read()
+
+
+def test_search_oversized_body_drains_before_answering(tmp_path):
+    from brain.web_widget import SEARCH_API_MAX_BODY, _make_web_handler
+    token = secrets.token_hex(16)
+    handler_cls = _make_web_handler(tmp_path, token)
+
+    body = b"x" * (SEARCH_API_MAX_BODY + 1000)
+    sent, leftover = _run_web_post(handler_cls, "/api/search", body,
+                                   {"Authorization": f"Bearer {token}"})
+
+    assert sent == [413]
+    assert leftover == b"", "unread body -> connection abort instead of 413"
+
+
+def test_config_oversized_body_drains_before_answering(tmp_path):
+    from brain.web_widget import CONFIG_API_MAX_BODY, _make_web_handler
+    token = secrets.token_hex(16)
+    handler_cls = _make_web_handler(tmp_path, token)
+
+    body = b"x" * (CONFIG_API_MAX_BODY + 1000)
+    sent, leftover = _run_web_post(handler_cls, "/api/config", body,
+                                   {"Authorization": f"Bearer {token}"})
+
+    assert sent == [413]
+    assert leftover == b"", "unread body -> connection abort instead of 413"
+
+
+def test_drain_cap_exceeds_every_body_limit():
+    """The bound that stops a hostile Content-Length must not stop a real one.
+
+    MAX_DRAIN_BODY used to equal _MAX_ACTIVITY_BODY exactly, so a body one byte
+    over the activity limit could never be fully consumed -- the leftover bytes
+    aborted the connection under the 413. Raising any endpoint limit past the
+    cap brings that back; this test is where it gets caught.
+    """
+    from brain.web_widget import (
+        CONFIG_API_MAX_BODY,
+        MAX_DRAIN_BODY,
+        SEARCH_API_MAX_BODY,
+        _MAX_ACTIVITY_BODY,
+    )
+
+    for name, limit in (("activity", _MAX_ACTIVITY_BODY),
+                        ("config", CONFIG_API_MAX_BODY),
+                        ("search", SEARCH_API_MAX_BODY)):
+        assert MAX_DRAIN_BODY > limit, (
+            f"MAX_DRAIN_BODY ({MAX_DRAIN_BODY}) must exceed the {name} body "
+            f"limit ({limit}), or an oversized body cannot be drained"
+        )
+
+
+def test_activity_oversized_body_drains_before_answering(activity_server):
+    from brain.web_widget import _MAX_ACTIVITY_BODY, _make_activity_handler
+    token = "t0ken"
+    handler_cls = _make_activity_handler(weakref.ref(_FakeWidget()), token)
+
+    body = b"x" * (_MAX_ACTIVITY_BODY + 1000)
+    sent, leftover = _run_post_with_body(
+        handler_cls, {"Authorization": f"Bearer {token}"}, body=body)
+
+    assert sent == [413]
+    assert leftover == b"", "unread body -> connection abort instead of 413"
+
+
 # ----------------------------------- ox-alpha review 2026-08-23, finding 1 (HIGH)
 # /api/config (POST rewrites the config), /api/reindex, /api/search and
 # /api/vault/<path> (serves any .md or attachment in the vault) ran on an
