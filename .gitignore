@@ -19,3 +19,7 @@ config.local.json
 # internal working docs - never publish
 docs/superpowers/
 .ruff_cache/
+# bundled embedding model (fetched by scripts/bundle_model.py at build time)
+assets/model/
+gystc-selfcheck.json
+selfcheck.json

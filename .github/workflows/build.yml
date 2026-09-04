@@ -37,11 +37,19 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      # Install the project itself, not a hand-written list of GUI packages.
+      # The old list omitted faiss, mcp, sentence-transformers, watchdog, psutil
+      # and httpx, so the shipped binary answered every search with
+      # "No module named 'faiss'" while the build stayed green.
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install pyinstaller
-          pip install PyQt6 PyQt6-WebEngine numpy scipy requests
+          pip install ".[dashboard]" pyinstaller
+
+      # The app must work with no network at all, so the model travels inside
+      # the bundle. This is the only step that is allowed online.
+      - name: Bundle the embedding model
+        run: python scripts/bundle_model.py
 
       - name: Generate macOS icon from SVG
         if: runner.os == 'macOS'
@@ -74,6 +82,30 @@ jobs:
             echo "Windows dist found"
             ls -la "dist/GYSTC Dashboard/"
           fi
+
+      # The real gate. A directory listing cannot tell whether the binary can
+      # search; running it can. --selfcheck indexes a throwaway vault, embeds it
+      # with the bundled model and retrieves it again -- no window, no network,
+      # no access to the user's vault.
+      - name: Smoke-test the built binary
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          if [ -d "dist/GYSTC Dashboard.app" ]; then
+            BIN="dist/GYSTC Dashboard.app/Contents/MacOS/GYSTC Dashboard"
+          else
+            BIN="dist/GYSTC Dashboard/GYSTC Dashboard.exe"
+          fi
+          set +e
+          "$BIN" --selfcheck selfcheck.json
+          status=$?
+          set -e
+          echo "--- selfcheck report ---"
+          cat selfcheck.json || echo "(no report written)"
+          if [ "$status" -ne 0 ]; then
+            echo "::error::Built binary failed its self-check -- not shippable"
+          fi
+          exit $status
 
       - name: Create Windows ZIP
         if: runner.os == 'Windows'

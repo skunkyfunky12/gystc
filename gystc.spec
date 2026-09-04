@@ -9,9 +9,20 @@ Output: dist/GYSTC Dashboard/  (Windows)
 import sys
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_all
+
 block_cipher = None
 ROOT = Path(SPECPATH)
 IS_MAC = sys.platform == 'darwin'
+
+# sentence-transformers loads its modules dynamically (modules.json names the
+# classes), so static analysis finds none of them. Without this the bundle
+# imports but every model load fails.
+_st_datas, _st_binaries, _st_hidden = collect_all('sentence_transformers')
+
+# assets/ is shipped whole (see datas below), so a model saved to assets/model
+# by the release workflow travels with the app. That is what lets the packaged
+# build embed with HF_HUB_OFFLINE=1 on a machine that never saw the model.
 
 icon_file = ROOT / 'assets' / ('gystc-icon.icns' if IS_MAC else 'gystc-icon.ico')
 if not icon_file.exists():
@@ -20,13 +31,13 @@ if not icon_file.exists():
 a = Analysis(
     [str(ROOT / 'main.py')],
     pathex=[str(ROOT)],
-    binaries=[],
+    binaries=_st_binaries,
     datas=[
         (str(ROOT / 'brain' / 'web'), 'brain/web'),
         (str(ROOT / 'brain' / 'shaders'), 'brain/shaders'),
         (str(ROOT / 'assets'), 'assets'),
         (str(ROOT / 'CLAUDE_TEMPLATE.md'), '.'),
-    ],
+    ] + _st_datas,
     hiddenimports=[
         'PyQt6.QtWebEngineWidgets',
         'PyQt6.QtWebEngineCore',
@@ -44,6 +55,7 @@ a = Analysis(
         'brain',
         'brain.physics',
         'brain.web_widget',
+        'brain.selfcheck',
         'integrations',
         'integrations.obsidian',
         'setup_wizard',
@@ -54,13 +66,16 @@ a = Analysis(
         'brain_mcp.config',
         'brain_mcp.storage.database',
         'brain_mcp.storage.migrations',
+        'brain_mcp.storage.file_lock',
         'brain_mcp.indexer.vector_store',
         'brain_mcp.indexer.embedder',
+        'brain_mcp.indexer.bundled_model',
         'brain_mcp.indexer.chunker',
         'brain_mcp.indexer.scanner',
+        'brain_mcp.indexer.pipeline',
         'brain_mcp.tools.retrieve',
         'brain_mcp.tools.recent',
-    ],
+    ] + _st_hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

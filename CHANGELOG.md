@@ -1,5 +1,46 @@
 # Changelog
 
+## Unreleased - the released binary can actually search
+
+### Fixed
+- **The packaged dashboard shipped without its own runtime** (external review 2026-09-03,
+  finding 6 — severity raised on verification: the review called it a build risk, measuring the
+  artifact showed it was already broken). The release workflow installed a hand-written list —
+  `pyinstaller PyQt6 PyQt6-WebEngine numpy scipy requests` — and never `pip install .`, while
+  `gystc.spec` bundles `brain_mcp.indexer.vector_store` and `.embedder`. Reading the ZIP central
+  directory of the v1.4.3 asset (2085 entries) finds **no** faiss, torch, sentence-transformers,
+  transformers, mcp, watchdog, psutil or httpx. Since `brain/web_widget.py` imports `brain_mcp`
+  inside its request handlers, wrapped in `except Exception -> 500`, the shipped app opened,
+  drew the graph, and answered every `/api/stats`, `/api/search` and `/api/reindex` with
+  `No module named 'faiss'`. The build stayed green because "Verify build output" only checked
+  that `dist/` existed. The build now installs `.[dashboard]`, so the artifact contains what the
+  spec says it contains.
+- **Semantic search could never work in a packaged install**: `_load()` sets `HF_HUB_OFFLINE=1`,
+  so `SentenceTransformer("<hub-name>")` resolves only from a local Hugging Face cache — and
+  nothing in the project ever created one. A fresh install therefore degraded silently to
+  keyword-only search, with the reason buried on stderr. The model now travels *inside* the
+  bundle (`scripts/bundle_model.py` saves it to `assets/model` at build time,
+  `brain_mcp/indexer/bundled_model.py` resolves it at load time), so offline stays on and there
+  is nothing left to fetch. This adds about 465 MB to the download; the app makes no network
+  request either way. The bundle records *which* model it holds (`gystc-model.json`) and is used
+  only when that matches the configured `model_name` — a bundled default silently replacing a
+  model the user chose would embed the vault with the wrong model, and on a dimension mismatch
+  `VectorStore.load` deletes the existing index. `GYSTC_MODEL_DIR` still overrides everything,
+  since pointing at a directory is an explicit choice.
+
+### Added
+- **`GYSTC Dashboard --selfcheck [report.json]`**: a headless check that imports every runtime
+  dependency, loads the bundled model, then indexes, embeds and retrieves a throwaway note in a
+  temporary directory — it never touches the user's vault, config, database or index. The
+  release build runs it against the built binary and refuses to package a build that fails it.
+  A directory listing cannot tell whether a binary can search; running it can. It blocks the
+  hub and empties `HF_HOME` *before* the first import, because `huggingface_hub` freezes that
+  flag into a constant at import time — otherwise the check would pass on the networked build
+  machine by downloading what the artifact is missing, and fail on the user's offline one.
+- Regression tests (`tests/test_release_bundle.py`) that fail at pull-request time if the build
+  stops installing the project, stops bundling the model, stops running the self-check before
+  packaging, or if a new runtime dependency is added that the self-check does not import.
+
 ## v1.4.3 - external review follow-up: index integrity, dashboard API auth, CI gates (2026-08-25)
 
 ### Fixed

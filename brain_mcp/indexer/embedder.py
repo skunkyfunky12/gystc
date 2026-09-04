@@ -47,12 +47,17 @@ class SentenceTransformerBackend:
             logging.getLogger("httpx").setLevel(logging.WARNING)
             logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
             t0 = time.perf_counter()
+            # A bundled model directory beats the hub name: with HF_HUB_OFFLINE=1
+            # (set above) the name only resolves from a local cache the packaged
+            # release does not have. See brain_mcp/indexer/bundled_model.py.
+            from brain_mcp.indexer.bundled_model import resolve_model_source
+            source = resolve_model_source(self._model_name)
             print(
-                f"Loading embedding model: {self._model_name}...", file=sys.stderr
+                f"Loading embedding model: {source}...", file=sys.stderr
             )
             try:
                 from sentence_transformers import SentenceTransformer
-                self._model = SentenceTransformer(self._model_name)
+                self._model = SentenceTransformer(source)
                 elapsed = time.perf_counter() - t0
                 print(f"Model loaded in {elapsed:.1f}s.", file=sys.stderr)
             except Exception as exc:
