@@ -353,6 +353,55 @@ def test_build_runs_the_binary_before_shipping_it(build_workflow):
         )
 
 
+# --------------------------------------------------------------------------
+# One version, everywhere
+# --------------------------------------------------------------------------
+
+# Before v1.4.4 the same artifact carried three different numbers: pyproject
+# said 1.4.3, brain_mcp/__init__.py said 1.4.1, and the macOS bundle reported a
+# hardcoded 1.0.0 -- so "which version is this?" had no answer you could trust.
+# brain_mcp/__init__.py is now the source and everything else derives from it.
+
+CHANGELOG = ROOT / "CHANGELOG.md"
+
+
+def test_pyproject_derives_the_version_instead_of_repeating_it():
+    text = PYPROJECT.read_text(encoding="utf-8")
+    assert 'version = {attr = "brain_mcp.__version__"}' in text
+    project_block = text.split("[project]", 1)[1].split("[project.optional", 1)[0]
+    assert not re.search(r'^version\s*=\s*"', project_block, re.M), (
+        "a literal version here is a second source of truth"
+    )
+
+
+def test_macos_bundle_reports_the_package_version():
+    """The .app used to claim 1.0.0 forever."""
+    import brain_mcp
+
+    spec = SPEC.read_text(encoding="utf-8")
+    assert "'CFBundleShortVersionString': VERSION" in spec
+    assert "'CFBundleVersion': VERSION" in spec
+
+    # Run the spec's own reader against the real file, so a broken regex fails
+    # here rather than three build minutes later.
+    match = re.search(r'^__version__\s*=\s*"([^"]+)"',
+                      (ROOT / "brain_mcp" / "__init__.py").read_text(encoding="utf-8"),
+                      re.M)
+    assert match and match.group(1) == brain_mcp.__version__
+
+
+def test_changelog_documents_the_version_being_shipped():
+    """You cannot tag a version the changelog has never heard of."""
+    import brain_mcp
+
+    headings = re.findall(r"^## (\S+)", CHANGELOG.read_text(encoding="utf-8"), re.M)
+    assert headings, "no version headings in CHANGELOG.md"
+    assert headings[0] == f"v{brain_mcp.__version__}", (
+        f"CHANGELOG.md starts with {headings[0]!r} but the package is "
+        f"v{brain_mcp.__version__} -- write the entry before tagging"
+    )
+
+
 def test_spec_bundles_the_selfcheck_and_model_resolver():
     spec = SPEC.read_text(encoding="utf-8")
     for name in ("brain.selfcheck", "brain_mcp.indexer.bundled_model",
