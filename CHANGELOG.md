@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.4.5 - the setup wizard no longer trusts an unowned PyPI name (2026-09-23)
 
 ### Security
 - **The setup wizard installed from an unowned PyPI name first** (dependency confusion).
