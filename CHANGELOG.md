@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Security
+- **The setup wizard installed from an unowned PyPI name first** (dependency confusion).
+  `_pip_install_gystc` ran `pip install gystc` and only fell back to the GitHub repo when that
+  failed — but the name `gystc` is not registered on PyPI (`pypi.org/pypi/gystc/json` → 404,
+  2026-09-23). Whoever registers it would have shipped code to every user who clicks
+  "Install MCP + Hooks", and the manual-fix hint pointed at the same name. The wizard now makes
+  exactly one pip call, against this repo pinned to the tag it was released as
+  (`git+https://github.com/skunkyfunky12/gystc.git@v<version>`), so wizard and MCP server stay
+  one version. Pinned by `tests/test_setup_wizard_install_source.py`.
+
 ## v1.4.4 - the released binary can actually search (2026-09-04)
 
 ### Fixed
