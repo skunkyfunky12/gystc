@@ -8,6 +8,7 @@ import sys
 import time
 from pathlib import Path
 
+from brain_mcp import __version__
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QApplication,
@@ -26,6 +27,10 @@ CONFIG_DIR = Path.home() / ".gystc"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 CLAUDE_DIR = Path.home() / ".claude"
 MCP_CONFIG_PATHS = [CLAUDE_DIR / ".mcp.json", Path.home() / ".claude.json"]
+# Never the bare PyPI name: "gystc" on PyPI is not ours, and whoever registers
+# it would ship code to every wizard user (dependency confusion). Pinned to the
+# tag this wizard was released as, so wizard and MCP server stay one version.
+GYSTC_PIP_SPEC = f"git+https://github.com/skunkyfunky12/gystc.git@v{__version__}"
 
 _FONT_FAMILY = "-apple-system, 'Helvetica Neue', sans-serif" if IS_MAC else "'Segoe UI', sans-serif"
 _MONO_FAMILY = "'SF Mono', Menlo, monospace" if IS_MAC else "'JetBrains Mono', monospace"
@@ -227,18 +232,7 @@ class SetupWizard(QDialog):
     def _pip_install_gystc(python_cmd: str) -> tuple[bool, str]:
         try:
             r = subprocess.run(
-                [python_cmd, "-m", "pip", "install", "gystc"],
-                capture_output=True, text=True, timeout=300,
-            )
-            if r.returncode == 0:
-                return True, "installed from PyPI"
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
-
-        repo_url = "git+https://github.com/skunkyfunky12/gystc.git"
-        try:
-            r = subprocess.run(
-                [python_cmd, "-m", "pip", "install", repo_url],
+                [python_cmd, "-m", "pip", "install", GYSTC_PIP_SPEC],
                 capture_output=True, text=True, timeout=300,
             )
             if r.returncode == 0:
@@ -272,7 +266,7 @@ class SetupWizard(QDialog):
                 results.append(f"MCP package: FAILED ({msg})")
                 self._status.setText(
                     f"Could not install brain_mcp: {msg}\n"
-                    f"Manual fix: {python_cmd} -m pip install gystc"
+                    f'Manual fix: {python_cmd} -m pip install "{GYSTC_PIP_SPEC}"'
                 )
                 self._status.setStyleSheet("color: #FF5C7C;")
                 return
