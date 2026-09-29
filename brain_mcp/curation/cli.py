@@ -54,6 +54,34 @@ def cmd_analyze(args) -> None:
         print(f"Reviewable proposal written: {args.out}")
 
 
+def _preview_edit(target: Path, rel: str, new_content: str) -> None:
+    try:
+        old = target.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        print(f"  (cannot read current content: {e})", file=sys.stderr)
+        old = ""
+    diff = unified_diff(old, new_content, rel)
+    print(diff if diff.strip() else "  (no content change)")
+
+
+def _preview_archive(target: Path, rel: str) -> None:
+    if not target.is_dir():
+        print(f"  archives 1 file: {rel}")
+        return
+    # relative to the resolved target: vault itself may be unresolved
+    files = sorted((Path(rel) / p.relative_to(target)).as_posix()
+                   for p in target.rglob("*") if p.is_file())
+    print(f"  archives a DIRECTORY with {len(files)} file(s):")
+    for f in files:
+        print(f"    {f}")
+
+
+def _preview_create(content: str) -> None:
+    print(f"  creates a new note ({len(content)} chars):")
+    for line in content.splitlines():
+        print(f"    {line}")
+
+
 def _preview_actions(vault: Path, actions: list[dict]) -> int:
     """The human gate must SHOW what it approves: a real diff for edits, the full
     target list for archives, the content for creates — never just 'op file'.
@@ -70,41 +98,38 @@ def _preview_actions(vault: Path, actions: list[dict]) -> int:
             refused += 1
             continue
         if op == "edit":
-            try:
-                old = target.read_text(encoding="utf-8", errors="replace")
-            except OSError as e:
-                print(f"  (cannot read current content: {e})", file=sys.stderr)
-                old = ""
-            diff = unified_diff(old, a.get("new_content", ""), rel)
-            print(diff if diff.strip() else "  (no content change)")
+            _preview_edit(target, rel, a.get("new_content", ""))
         elif op == "archive":
-            if target.is_dir():
-                # relative to the resolved target: vault itself may be unresolved
-                files = sorted((Path(rel) / p.relative_to(target)).as_posix()
-                               for p in target.rglob("*") if p.is_file())
-                print(f"  archives a DIRECTORY with {len(files)} file(s):")
-                for f in files:
-                    print(f"    {f}")
-            else:
-                print(f"  archives 1 file: {rel}")
+            _preview_archive(target, rel)
         elif op == "create":
-            content = a.get("new_content", "")
-            print(f"  creates a new note ({len(content)} chars):")
-            for line in content.splitlines():
-                print(f"    {line}")
+            _preview_create(a.get("new_content", ""))
     return refused
 
 
-def cmd_apply(args) -> None:
-    v = _vault_path(args)
-    data = json.loads(Path(args.proposals).read_text(encoding="utf-8"))
+def _load_proposal(path: str) -> list[dict]:
+    """Actions of a proposal file, with the analyze-time fingerprints carried
+    onto them: apply refuses (skips) any note that changed in the review window
+    instead of clobbering it."""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
     actions = data.get("actions", []) if isinstance(data, dict) else data
-    # carry the analyze-time fingerprints onto the actions: apply refuses (skips)
-    # any note that changed in the review window instead of clobbering it
     fingerprints = data.get("fingerprints", {}) if isinstance(data, dict) else {}
     for a in actions:
         if "base_hash" not in a and fingerprints.get(a.get("file")):
             a["base_hash"] = fingerprints[a["file"]]
+    return actions
+
+
+def _report_skipped(skipped: list[dict]) -> None:
+    print(f"WARNING: {len(skipped)} action(s) SKIPPED — not applied by this "
+          "run (stale: re-run analyze to refresh the proposal; replay: already "
+          "applied earlier, safe to drop from the proposal):", file=sys.stderr)
+    for skip in skipped:
+        print(f"  {skip['file']}: {skip['reason']}", file=sys.stderr)
+
+
+def cmd_apply(args) -> None:
+    v = _vault_path(args)
+    actions = _load_proposal(args.proposals)
     refused = _preview_actions(v, actions)  # --yes sees the same preview as the dry run
     if refused:
         # apply_actions would stop at the first of these with a PARTIAL commit of
@@ -123,11 +148,7 @@ def cmd_apply(args) -> None:
     print(f"Applied {res['applied']} action(s); commit {(res['commit'] or '-')[:8]} "
           f"(revert with: git -C <vault> revert {(res['commit'] or '')[:8]}).")
     if res["skipped"]:
-        print(f"WARNING: {len(res['skipped'])} action(s) SKIPPED — not applied by this "
-              "run (stale: re-run analyze to refresh the proposal; replay: already "
-              "applied earlier, safe to drop from the proposal):", file=sys.stderr)
-        for skip in res["skipped"]:
-            print(f"  {skip['file']}: {skip['reason']}", file=sys.stderr)
+        _report_skipped(res["skipped"])
         sys.exit(1)  # nonzero summary: the run did not fully apply
 
 

@@ -177,7 +177,8 @@ def test_delete_note_cascades_chunks(tmp_path):
 ])
 def test_heading_pattern_finds_real_headings(line, heading):
     match = HEADING_RE.search(f"intro\n{line}\nbody")
-    assert match and match.group(2) == heading
+    assert match is not None
+    assert match.group(2) == heading
 
 
 @pytest.mark.parametrize("text", ["#### Too deep", "# Top level", "##NoSpace"])
