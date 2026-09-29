@@ -29,27 +29,39 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
-    steps:
-      - uses: actions/checkout@v4
+    env:
+      # uv uses the interpreter setup-python installed, never a second one.
+      UV_PYTHON: "3.12"
+      UV_PYTHON_DOWNLOADS: never
 
-      - uses: actions/setup-python@v5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
-          cache: pip
 
-      # Install the project itself, not a hand-written list of GUI packages.
-      # The old list omitted faiss, mcp, sentence-transformers, watchdog, psutil
-      # and httpx, so the shipped binary answered every search with
-      # "No module named 'faiss'" while the build stayed green.
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.19"
+          enable-cache: true
+
+      # Install every locked runtime dependency, not a hand-written list of GUI
+      # packages. The old list omitted faiss, mcp, sentence-transformers,
+      # watchdog, psutil and httpx, so the shipped binary answered every search
+      # with "No module named 'faiss'" while the build stayed green.
+      #   --frozen             exactly what uv.lock pins, never a fresh resolve
+      #   --no-build           wheels only: no third-party setup.py runs here
+      #   --no-install-project PyInstaller collects gystc from the source tree
+      #                        (gystc.spec: pathex=[ROOT]); only the
+      #                        dependencies have to be installed
       - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install ".[dashboard]" pyinstaller
+        run: uv sync --frozen --no-build --no-install-project --extra dashboard --group build
 
       # The app must work with no network at all, so the model travels inside
       # the bundle. This is the only step that is allowed online.
       - name: Bundle the embedding model
-        run: python scripts/bundle_model.py
+        run: uv run --frozen --no-build --no-sync python scripts/bundle_model.py
 
       - name: Generate macOS icon from SVG
         if: runner.os == 'macOS'
@@ -68,7 +80,7 @@ jobs:
           ls -la assets/gystc-icon.icns
 
       - name: Build with PyInstaller
-        run: pyinstaller gystc.spec --noconfirm
+        run: uv run --frozen --no-build --no-sync pyinstaller gystc.spec --noconfirm
 
       - name: Verify build output
         shell: bash
@@ -136,7 +148,7 @@ jobs:
           }
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.artifact }}
           path: |

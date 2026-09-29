@@ -2,14 +2,21 @@
 """Secret guard — blocks API keys / tokens / private keys from being committed or pushed.
 
 Used by .githooks/pre-commit (scans staged files) and .githooks/pre-push (scans all
-tracked files). Run manually:  python scripts/check_secrets.py [path ...]
-Exit code 1 if anything suspicious is found.
+tracked files). Run manually from the repo root:  python scripts/check_secrets.py [path ...]
+Exit code 1 if anything suspicious is found, 2 if a path lies outside the working
+directory (the hooks only ever pass repository files).
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from brain_mcp.pathguard import resolve_within  # noqa: E402  (needs sys.path first)
 
 # (label, compiled pattern) — high-signal credential shapes.
 PATTERNS = [
@@ -55,8 +62,9 @@ def scan(paths: list[str]) -> list[tuple[str, int, str, str]]:
         if path.endswith((".png", ".jpg", ".jpeg", ".ico", ".icns", ".svg",
                           ".faiss", ".db", ".zip", ".dmg", ".mp4", ".woff", ".woff2")):
             continue
+        inside = resolve_within(path, os.getcwd())  # ValueError: outside the repo
         try:
-            with open(path, encoding="utf-8", errors="replace") as fh:
+            with open(inside, encoding="utf-8", errors="replace") as fh:
                 for i, line in enumerate(fh, 1):
                     if ALLOW.search(line):
                         continue
@@ -74,7 +82,11 @@ def scan(paths: list[str]) -> list[tuple[str, int, str, str]]:
 
 def main() -> int:
     paths = sys.argv[1:] or staged_files()
-    findings = scan(paths)
+    try:
+        findings = scan(paths)
+    except ValueError as exc:
+        sys.stderr.write(f"\n⛔ Refusing to scan: {exc}\n")
+        return 2
     if findings:
         sys.stderr.write("\n⛔ Potential secret(s) detected — commit/push blocked:\n\n")
         for path, line, name, red in findings:

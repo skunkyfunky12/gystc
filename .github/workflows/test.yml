@@ -26,12 +26,22 @@ jobs:
     # rather than of whoever happens to run ruff.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      # Actions pinned to full commit SHAs (comment = tag): a tag can be moved to
+      # other code at any time, and this repository is public.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
       - run: pipx install ruff==0.16.4
       - run: ruff check .
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.19"
+      # --frozen below installs uv.lock without comparing it to pyproject.toml.
+      # This is the comparison: a dependency added without `uv lock` fails here
+      # instead of CI quietly testing the old set.
+      - name: uv.lock matches pyproject.toml
+        run: uv lock --check
 
   pytest:
     strategy:
@@ -47,27 +57,37 @@ jobs:
       # The setup-wizard tests construct a real QApplication. The offscreen
       # plugin makes that deterministic on a runner with no display session.
       QT_QPA_PLATFORM: offscreen
+      # uv uses the interpreter setup-python installed, never a second one.
+      UV_PYTHON: "3.12"
+      UV_PYTHON_DOWNLOADS: never
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
-          cache: pip
 
-      - name: Install package + test dependencies
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.19"
+          enable-cache: true
+
+      - name: Install locked test dependencies
         # [dashboard] is not optional for the suite: without `requests` the
         # obsidian tests fail and without `scipy` the physics tests do, while
         # without PyQt6 the setup-wizard tests importorskip themselves into a
         # green-looking void. Install what the tests actually exercise.
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev,dashboard]"
+        #   --frozen             exactly what uv.lock pins, never a fresh resolve
+        #   --no-build           wheels only: no third-party setup.py runs here
+        #   --no-install-project the suite runs from the source tree; nothing
+        #                        reads the package metadata, so gystc itself is
+        #                        not built (uv refuses that under --no-build)
+        run: uv sync --frozen --no-build --no-install-project --extra dev --extra dashboard
 
       - name: pytest
         # Full suite including `-m slow` (real daemon/proxy subprocesses) --
         # those cover the single-writer and shutdown invariants, which are this
         # codebase's most expensive bug class. pytest-timeout (120s) turns a
         # deadlock into a failure instead of a frozen job.
-        run: python -m pytest -q
+        run: uv run --frozen --no-build --no-sync python -m pytest -q

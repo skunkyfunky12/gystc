@@ -5,8 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <!-- No remote script origins: three.js is vendored locally (./vendor/), only the
      Qt webchannel loads from qrc:. Fonts may still come from Google Fonts and
-     degrade gracefully offline. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' qrc:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'" />
+     degrade gracefully offline. No 'unsafe-inline' for scripts: the one inline
+     script is the import map, allowed by its hash (tests/test_web_csp.py
+     recomputes it, so an edit to the map fails the suite, not the dashboard).
+     Styles keep 'unsafe-inline': the UI sets style="" attributes in markup. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-kYe9Og/DW7s9vLqXk1iTxCOK58vvMJqTf1lHN1CJYAU=' qrc:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'" />
 <title>GYSTC</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -492,6 +495,7 @@
   .settings-group { padding: 12px 18px; border-bottom: 1px solid var(--line); }
   .settings-group:last-child { border-bottom: none; }
   .settings-label {
+    display: block;
     font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
     text-transform: uppercase; color: var(--ink-2); margin-bottom: 6px;
   }
@@ -521,6 +525,11 @@
   .settings-select option { background: var(--bg-1); color: var(--ink-0); }
 
   /* Toggle switch */
+  /* Text for screen readers only (toggle switches have no visible caption). */
+  .visually-hidden {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
   .toggle { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
   .toggle input { opacity: 0; width: 0; height: 0; }
   .toggle-slider {
@@ -667,7 +676,7 @@
       <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/>
       </svg>
-      <input id="search-input" placeholder="Search brain… e.g. &quot;MCP&quot;, &quot;Routing&quot;, &quot;Project&quot;" autocomplete="off"/>
+      <input id="search-input" aria-label="Search the brain" placeholder="Search brain… e.g. &quot;MCP&quot;, &quot;Routing&quot;, &quot;Project&quot;" autocomplete="off"/>
       <div class="kbd">⌘K</div>
       <div class="search-results" id="search-results"></div>
     </div>
@@ -767,7 +776,7 @@
       <div class="ct-body" id="ct-body"></div>
       <div class="ct-input-row">
         <span class="ct-prompt">❯</span>
-        <input class="ct-input" id="ct-input" placeholder="Ask Claude… e.g. &quot;Who works on the MCP layer?&quot;" autocomplete="off" spellcheck="false"/>
+        <input class="ct-input" id="ct-input" aria-label="Ask Claude" placeholder="Ask Claude… e.g. &quot;Who works on the MCP layer?&quot;" autocomplete="off" spellcheck="false"/>
         <span class="ct-hint">↵</span>
       </div>
       <div class="ct-resize" id="ct-resize" title="Drag to resize"></div>
@@ -787,7 +796,7 @@
         <span>MEMORY TIMELINE</span>
         <span class="tl-now" id="tl-now">NOW</span>
       </div>
-      <input type="range" id="timeline-slider" min="0" max="100" value="100"/>
+      <input type="range" id="timeline-slider" aria-label="Memory timeline" min="0" max="100" value="100"/>
     </div>
   </div>
 
@@ -830,43 +839,43 @@
     <div class="palette-options" id="palette-options"></div>
   </div>
   <div class="tweak-group">
-    <div class="tweak-label">Glow <span class="tl-val" id="glow-val">1.0</span></div>
+    <label class="tweak-label" for="glow-slider">Glow <span class="tl-val" id="glow-val">1.0</span></label>
     <input type="range" id="glow-slider" min="0" max="3" step="0.05" value="1.0"/>
   </div>
   <div class="tweak-group">
-    <div class="tweak-label">Stars <span class="tl-val" id="stars-val">3000</span></div>
+    <label class="tweak-label" for="stars-slider">Stars <span class="tl-val" id="stars-val">3000</span></label>
     <input type="range" id="stars-slider" min="0" max="8000" step="100" value="3000"/>
   </div>
   <div class="tweak-group">
-    <div class="tweak-label">Node Size <span class="tl-val" id="size-val">1.0</span></div>
+    <label class="tweak-label" for="size-slider">Node Size <span class="tl-val" id="size-val">1.0</span></label>
     <input type="range" id="size-slider" min="1" max="10" step="0.1" value="2.5"/>
   </div>
   <div class="tweak-group">
-    <div class="tweak-label">Pulse Speed <span class="tl-val" id="pulse-val">1.0</span></div>
+    <label class="tweak-label" for="pulse-slider">Pulse Speed <span class="tl-val" id="pulse-val">1.0</span></label>
     <input type="range" id="pulse-slider" min="0" max="3" step="0.1" value="1.0"/>
   </div>
   <div class="tweak-group">
-    <div class="tweak-label">Bloom Strength <span class="tl-val" id="bloom-val">0.55</span></div>
+    <label class="tweak-label" for="bloom-slider">Bloom Strength <span class="tl-val" id="bloom-val">0.55</span></label>
     <input type="range" id="bloom-slider" min="0" max="1.5" step="0.05" value="0.55"/>
   </div>
   <div class="tweak-group">
-    <div class="tweak-label">Bloom-Radius <span class="tl-val" id="bloom-radius-val">0.70</span></div>
+    <label class="tweak-label" for="bloom-radius-slider">Bloom-Radius <span class="tl-val" id="bloom-radius-val">0.70</span></label>
     <input type="range" id="bloom-radius-slider" min="0.2" max="1.2" step="0.05" value="0.7"/>
   </div>
   <div class="tweak-group">
-    <div class="tweak-label">Connections <span class="tl-val" id="edge-val">0.35</span></div>
+    <label class="tweak-label" for="edge-slider">Connections <span class="tl-val" id="edge-val">0.35</span></label>
     <input type="range" id="edge-slider" min="0" max="1" step="0.05" value="0.35"/>
   </div>
   <div class="tweak-group">
-    <div class="tweak-label">Edge-Reichweite <span class="tl-val" id="edgerange-val">100%</span></div>
+    <label class="tweak-label" for="edgerange-slider">Edge-Reichweite <span class="tl-val" id="edgerange-val">100%</span></label>
     <input type="range" id="edgerange-slider" min="0" max="1" step="0.05" value="1.0"/>
   </div>
   <div class="tweak-group">
-    <div class="tweak-label">Edge-Dicke <span class="tl-val" id="edgewidth-val">1.0</span></div>
+    <label class="tweak-label" for="edgewidth-slider">Edge-Dicke <span class="tl-val" id="edgewidth-val">1.0</span></label>
     <input type="range" id="edgewidth-slider" min="0.1" max="4" step="0.1" value="1.0"/>
   </div>
   <div class="tweak-group">
-    <div class="tweak-label">Intra-Region Only <span class="tl-val" id="intra-val">OFF</span></div>
+    <label class="tweak-label" for="intra-slider">Intra-Region Only <span class="tl-val" id="intra-val">OFF</span></label>
     <input type="range" id="intra-slider" min="0" max="1" step="1" value="0"/>
   </div>
 </div>
@@ -896,6 +905,7 @@
     </div>
     <label class="toggle">
       <input type="checkbox" id="cfg-auto-index"/>
+      <span class="visually-hidden">Auto-Index</span>
       <span class="toggle-slider"></span>
     </label>
   </div>
@@ -907,12 +917,13 @@
     </div>
     <label class="toggle">
       <input type="checkbox" id="cfg-index-startup"/>
+      <span class="visually-hidden">Index on Startup</span>
       <span class="toggle-slider"></span>
     </label>
   </div>
 
   <div class="settings-group">
-    <div class="settings-label">Log Level</div>
+    <label class="settings-label" for="cfg-log-level">Log Level</label>
     <select class="settings-select" id="cfg-log-level">
       <option value="DEBUG">DEBUG</option>
       <option value="INFO">INFO</option>
@@ -947,18 +958,7 @@
   </div>
 </div>
 
-<script>
-// Editable defaults — host may rewrite this block.
-const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "palette": "graphite",
-  "glow": 1.25,
-  "stars": 8000,
-  "nodeSize": 2.5,
-  "pulseSpeed": 0.7,
-  "bloom": 0.55,
-  "bloomRadius": 0.7
-}/*EDITMODE-END*/;
-</script>
+<script src="./tweak-defaults.js"></script>
 
 <script type="importmap">
 {

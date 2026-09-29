@@ -15,6 +15,7 @@ from brain_mcp.config import load_config
 from brain_mcp.curation.analyze import analyze
 from brain_mcp.curation.apply import apply_actions, unified_diff
 from brain_mcp.curation.vault_git import ensure_vault_repo, is_repo
+from brain_mcp.pathguard import resolve_within
 
 
 def _vault_path(args) -> Path:
@@ -58,8 +59,13 @@ def _preview_actions(vault: Path, actions: list[dict]) -> None:
     target list for archives, the content for creates — never just 'op file'."""
     for a in actions:
         op, rel = a["op"], a["file"]
-        target = vault / rel
         print(f"\n== {op} {rel}")
+        try:
+            target = resolve_within(rel, vault)
+        except ValueError as e:
+            # apply refuses this action too; the preview must not read it first.
+            print(f"  REFUSED: {e}", file=sys.stderr)
+            continue
         if op == "edit":
             try:
                 old = target.read_text(encoding="utf-8", errors="replace")
@@ -70,7 +76,8 @@ def _preview_actions(vault: Path, actions: list[dict]) -> None:
             print(diff if diff.strip() else "  (no content change)")
         elif op == "archive":
             if target.is_dir():
-                files = sorted(p.relative_to(vault).as_posix()
+                # relative to the resolved target: vault itself may be unresolved
+                files = sorted((Path(rel) / p.relative_to(target)).as_posix()
                                for p in target.rglob("*") if p.is_file())
                 print(f"  archives a DIRECTORY with {len(files)} file(s):")
                 for f in files:

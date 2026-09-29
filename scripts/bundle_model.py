@@ -33,6 +33,7 @@ from brain_mcp.indexer.bundled_model import (  # noqa: E402
     read_marker,
     write_marker,
 )
+from brain_mcp.pathguard import resolve_within  # noqa: E402
 
 
 def _fetch(model_name: str, out_dir: Path) -> None:
@@ -73,8 +74,11 @@ def verify_offline(out_dir: Path) -> int:
         # An empty HF_HOME proves the files come from out_dir and not from the
         # cache this script just filled.
         env["HF_HOME"] = empty_home
+        # Sonar S8705 (argument injection): after `-c <code>` every further
+        # argument is sys.argv for the snippet, never an interpreter option, and
+        # main() hands in an absolute path from resolve_within.
         result = subprocess.run(
-            [sys.executable, "-c", _VERIFY_SNIPPET, str(out_dir)],
+            [sys.executable, "-c", _VERIFY_SNIPPET, str(out_dir)],  # NOSONAR S8705
             env=env, capture_output=True, text=True, cwd=str(ROOT),
         )
     if result.returncode != 0:
@@ -92,7 +96,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", default=str(ROOT / "assets" / "model"))
     args = parser.parse_args(argv)
 
-    out_dir = Path(args.out)
+    # The bundle has to land inside the repo, where gystc.spec collects assets/.
+    # Checked before anything is downloaded or written.
+    try:
+        out_dir = resolve_within(args.out, ROOT)
+    except ValueError as exc:
+        raise SystemExit(f"--out must stay inside the repository: {exc}") from None
     _fetch(args.model, out_dir)
 
     recorded = read_marker(out_dir)

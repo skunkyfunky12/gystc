@@ -30,6 +30,8 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+from brain_mcp.pathguard import resolve_within
+
 # Third-party packages that must be inside the bundle. Each one was missing from
 # the 1.4.3 release build, where their absence surfaced as an HTTP 500 per search.
 RUNTIME_PACKAGES = (
@@ -234,6 +236,19 @@ def _run_steps() -> list[dict[str, Any]]:
         shutil.rmtree(workdir, ignore_errors=True)
 
     return steps
+
+
+def report_path_from_argv(argv: list[str]) -> Path:
+    """Report path for ``--selfcheck [path]``: the argument after it, or a default.
+
+    The path must stay inside the working directory: the flag is how CI -- or an
+    agent driving the binary -- asks for a report, and it must not become a way
+    to write JSON over an arbitrary file. Raises ``ValueError`` otherwise.
+    """
+    idx = argv.index("--selfcheck")
+    if idx + 1 < len(argv) and not argv[idx + 1].startswith("-"):
+        return resolve_within(argv[idx + 1], Path.cwd())
+    return Path.cwd() / "gystc-selfcheck.json"
 
 
 def run_selfcheck(report_path: Path | None = None) -> int:

@@ -50,7 +50,9 @@ def _ensure_secret_gitignore(vault: Path) -> bool:
     if not missing:
         return False
     sep = "" if (not existing or existing.endswith("\n")) else "\n"
-    gi.write_text(
+    # Sonar S2083 treats the old .gitignore text as input reaching write_text;
+    # the path is fixed (<vault>/.gitignore), only the content is appended to.
+    gi.write_text(  # NOSONAR S2083 -- content, not path
         existing + sep
         + "# Added by vault-curation: never track secrets / trash / derived artifacts.\n"
         + "\n".join(missing) + "\n",

@@ -69,11 +69,14 @@ const COMMUNITY_TO_REGION = [0,1,2,3,4,5,6,7, 7,7,10,10,8,8,10,11, 5,10,10,11,7,
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
+// LCG modulo 2^32: the wrap-around is the algorithm, not a truncation, so the
+// state lives as uint32 (>>> 0) and Math.imul keeps the product exact. Draws are
+// identical to the earlier `| 0` form (checked over 9 seeds x 1e6 draws).
 function seededRandom(seed) {
-  let s = seed | 0;
+  let s = seed >>> 0;
   return () => {
-    s = (s * 1664525 + 1013904223) | 0;
-    return ((s >>> 0) % 1_000_000) / 1_000_000;
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return (s % 1_000_000) / 1_000_000;
   };
 }
 
@@ -452,14 +455,15 @@ function buildStars(count) {
   const positions = new Float32Array(count * 3);
   const brightness = new Float32Array(count);
   for (let i = 0; i < count; i++) {
-    // sphere shell
-    const r = 900 + Math.random() * 900;
-    const theta = Math.random() * Math.PI * 2;
-    const phi = Math.acos(2 * Math.random() - 1);
+    // sphere shell. Math.random is fine for decoration (Sonar S2245): nothing
+    // here is a secret, a token or an identifier, only where a star sits.
+    const r = 900 + Math.random() * 900; // NOSONAR S2245
+    const theta = Math.random() * Math.PI * 2; // NOSONAR S2245
+    const phi = Math.acos(2 * Math.random() - 1); // NOSONAR S2245
     positions[i*3]   = r * Math.sin(phi) * Math.cos(theta);
     positions[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
     positions[i*3+2] = r * Math.cos(phi);
-    brightness[i] = 0.2 + Math.random() * 0.8;
+    brightness[i] = 0.2 + Math.random() * 0.8; // NOSONAR S2245
   }
   geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geom.setAttribute('bright', new THREE.BufferAttribute(brightness, 1));
@@ -722,7 +726,8 @@ const edgeParams = new Float32Array(edgeCount * vertsPerEdge * 2);
 
 const edgeCurveOffsets = new Float32Array(edgeCount * 3);
 for (let i = 0; i < edgeCount; i++) {
-  const dir = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
+  // Bend direction of each edge curve: decoration, not security (S2245).
+  const dir = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize(); // NOSONAR S2245
   edgeCurveOffsets[i*3] = dir.x; edgeCurveOffsets[i*3+1] = dir.y; edgeCurveOffsets[i*3+2] = dir.z;
 }
 
@@ -1130,7 +1135,7 @@ function bindSlider(sliderId, valId, callback) {
   const s = document.getElementById(sliderId);
   const v = document.getElementById(valId);
   s.addEventListener('input', () => {
-    const val = parseFloat(s.value);
+    const val = Number.parseFloat(s.value);
     v.textContent = (sliderId === 'stars-slider') ? Math.round(val) : val.toFixed(2);
     callback(val);
   });
@@ -1190,7 +1195,7 @@ bindSlider('edgerange-slider', 'edgerange-val', (v) => {
   document.getElementById('edgerange-val').textContent = Math.round(v * 100) + '%';
   applyEdgeFilters();
   persistTweaks({ edgeRange: v });
-}, true);
+});
 bindSlider('edgewidth-slider', 'edgewidth-val', (v) => {
   edgeLines.material.linewidth = v;
   persistTweaks({ edgeWidth: v });
@@ -1200,7 +1205,7 @@ bindSlider('intra-slider', 'intra-val', (v) => {
   document.getElementById('intra-val').textContent = state.intraOnly ? 'ON' : 'OFF';
   applyEdgeFilters();
   persistTweaks({ intraOnly: state.intraOnly });
-}, true);
+});
 
 // init slider UI values
 document.getElementById('glow-slider').value = state.glow;
@@ -1503,7 +1508,7 @@ function renderDetail(node) {
     </div>
   `;
   detailPanel.querySelectorAll('.link-item').forEach(el => {
-    el.addEventListener('click', () => selectNode(parseInt(el.dataset.nid)));
+    el.addEventListener('click', () => selectNode(Number.parseInt(el.dataset.nid, 10)));
   });
   detailPanel.querySelector('#detail-open').addEventListener('click', () => {
     if (window.__onNodeClick) window.__onNodeClick(node.id, node.title);
@@ -1860,9 +1865,12 @@ const SAMPLE_QUERIES = [
 SAMPLE_QUERIES.forEach(s => {
   const row = document.createElement('div');
   row.className = 'qitem';
+  // Display-only sample score (S2245): outside the template so the marker
+  // comment cannot end up in the HTML.
+  const score = (0.7 + Math.random() * 0.28).toFixed(2); // NOSONAR S2245
   row.innerHTML = `
     <div class="q-text">${s.q}</div>
-    <div class="q-meta"><span>${s.ts}</span><span>${s.regions.length} REGIONS</span><span class="q-score">${(0.7 + Math.random()*0.28).toFixed(2)}</span></div>
+    <div class="q-meta"><span>${s.ts}</span><span>${s.regions.length} REGIONS</span><span class="q-score">${score}</span></div>
   `;
   row.addEventListener('click', () => { searchInput.value = s.q; runClaudeQuery(s.q); });
   recentEl.appendChild(row);
@@ -2078,7 +2086,7 @@ function sampleRelevantNodes(query) {
     const hay = (n.title + ' ' + (n.tags || []).join(' ')).toLowerCase();
     let s = 0;
     tokens.forEach(t => { if (hay.includes(t)) s += 1; });
-    s += Math.random() * 0.4; // jitter so repeated queries look alive
+    s += Math.random() * 0.4; // NOSONAR S2245 -- jitter so repeated queries look alive
     if (n.hub) s += 0.15;
     return { n, s };
   });
@@ -2377,7 +2385,8 @@ const bootTimer = setInterval(() => {
       termLine(tag, text, { tagClass: tagClass || 'tag-tool', out: tag === 'CLAUDE' });
 
       // Fuzzy match: strip HTML tags, extract highlighted term, match by title/stem/substring
-      const plainText = text.replace(/<[^>]+>/g, '').toLowerCase();
+      // [^<>]: a stray '<' ends the scan instead of restarting it (was quadratic)
+      const plainText = text.replace(/<[^<>]+>/g, '').toLowerCase();
       const hlMatch = text.match(/<span class='hl'>([^<]+)<\/span>/);
       const hlTerm = hlMatch ? hlMatch[1].toLowerCase().replace(/[_\-]/g, ' ') : '';
 
@@ -2481,17 +2490,29 @@ window.loadGraphData = function(jsonString) {
    TWEAKS HOST BRIDGE
    ======================================================================== */
 
+// Only a same-origin host frame may drive the tweaks panel or receive its edits.
+// The page carries the local API token; '*' would hand every edit to whatever
+// page embeds it, and an unchecked listener lets any frame poke at the UI.
+// Read directly, not via a const: persistTweaks may run during init, before
+// this line (a const here would throw in its temporal dead zone).
 window.addEventListener('message', (e) => {
+  if (e.origin !== window.location.origin) return;
   const d = e.data || {};
   if (d.type === '__activate_edit_mode') tweaksPanel.classList.add('visible');
   if (d.type === '__deactivate_edit_mode') tweaksPanel.classList.remove('visible');
 });
-function persistTweaks(edits) {
+function postToTweaksHost(message) {
+  if (window.parent === window) return; // not embedded: nobody to tell
   try {
-    window.parent.postMessage({ type: '__edit_mode_set_keys', edits }, '*');
-  } catch (e) {}
+    window.parent.postMessage(message, window.location.origin);
+  } catch (err) {
+    console.warn('tweaks host unreachable:', err);
+  }
 }
-try { window.parent.postMessage({ type: '__edit_mode_available' }, '*'); } catch (e) {}
+function persistTweaks(edits) {
+  postToTweaksHost({ type: '__edit_mode_set_keys', edits });
+}
+postToTweaksHost({ type: '__edit_mode_available' });
 
 // Auto-select a showcase node after 2s so the right panel has content on first load
 setTimeout(() => {
