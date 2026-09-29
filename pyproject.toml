@@ -10,8 +10,8 @@ license = {text = "MIT"}
 requires-python = ">=3.11"
 dependencies = [
     # Upper bounds block silent major upgrades of network-facing deps (defense
-    # against supply-chain / breaking releases). Distributed binaries are the
-    # CI-frozen PyInstaller build, which locks all transitive deps at build time.
+    # against supply-chain / breaking releases). CI and the release build do not
+    # resolve these ranges at all: they install exactly what uv.lock pins.
     "mcp>=1.0,<2",
     "sentence-transformers>=2.2,<6",
     "faiss-cpu>=1.7.4,<2",
@@ -33,6 +33,12 @@ dashboard = [
     "scipy",
     "requests",
 ]
+
+# What the release build needs and the package does not. A PEP 735 group rather
+# than an extra, so no `pip install gystc[...]` can ever pull PyInstaller in;
+# uv.lock pins it together with everything else (see build.yml).
+[dependency-groups]
+build = ["pyinstaller"]
 
 # One version source: brain_mcp/__init__.py. It used to say 1.4.1 while this
 # file said 1.4.3 and the macOS bundle said 1.0.0 -- three numbers for one

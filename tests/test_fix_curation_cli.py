@@ -73,6 +73,42 @@ def test_dry_run_shows_create_content(tmp_path, capsys):
     assert "CREATED BODY" in capsys.readouterr().out
 
 
+def test_preview_never_reads_outside_the_vault(tmp_path, capsys):
+    """Proposals can be agent-written. A '../' entry must not turn the dry run
+    into a file reader: the preview refuses exactly what apply refuses."""
+    v = _vault(tmp_path)
+    (tmp_path / "secret.txt").write_text("TOP SECRET\n", encoding="utf-8")
+    (tmp_path / "private").mkdir()
+    (tmp_path / "private" / "diary.md").write_text("x", encoding="utf-8")
+    prop = _write_actions(tmp_path, {"actions": [
+        {"op": "edit", "file": "../secret.txt", "new_content": "x\n"},
+        {"op": "archive", "file": "../private"},
+        {"op": "edit", "file": "p.md", "new_content": "# P\nnew line\n"},
+    ]})
+    main(["apply", "--vault", str(v), "--proposals", str(prop)])
+    captured = capsys.readouterr()
+    shown = captured.out + captured.err
+    assert "TOP SECRET" not in shown          # no diff of a file outside the vault
+    assert "diary.md" not in shown            # no listing of a folder outside it
+    assert shown.count("REFUSED") == 2
+    assert "+new line" in captured.out        # the legitimate action is still previewed
+
+
+def test_yes_applies_nothing_when_any_action_leaves_the_vault(tmp_path, capsys):
+    """apply_actions would stop at the escaping action with a PARTIAL commit of
+    whatever came before it. A refused preview must stop the run up front."""
+    v = _vault(tmp_path)
+    prop = _write_actions(tmp_path, {"actions": [
+        {"op": "edit", "file": "p.md", "new_content": "# P\nnew line\n"},
+        {"op": "edit", "file": "../outside.md", "new_content": "x\n"},
+    ]})
+    with pytest.raises(SystemExit) as info:
+        main(["apply", "--vault", str(v), "--proposals", str(prop), "--yes"])
+    assert info.value.code == 1
+    assert "old line" in (v / "p.md").read_text(encoding="utf-8")   # nothing applied
+    assert "nothing applied" in capsys.readouterr().err
+
+
 def test_yes_prints_same_preview_before_applying(tmp_path, capsys):
     v = _vault(tmp_path)
     prop = _write_actions(tmp_path, {"actions": [

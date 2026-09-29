@@ -214,7 +214,10 @@ def run_daemon(idle_timeout: float = 1800.0) -> None:
         token=token, allowed_origins=allowed_origins,
         on_request=lambda: activity.__setitem__(0, time.monotonic())))
 
-    async def health(_req):
+    # async without an await on purpose (Sonar S7503): Starlette runs a plain
+    # def endpoint in its thread pool, and the liveness probe must answer on the
+    # event loop even when that pool is saturated.
+    async def health(_req):  # NOSONAR S7503
         return JR({"ok": True, "pid": os.getpid()})
     app.router.routes.append(Route("/health", health, methods=["GET"]))
 

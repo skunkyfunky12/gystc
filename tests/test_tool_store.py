@@ -1,7 +1,13 @@
 # tests/test_tool_store.py
+import random
+import re
+import time
+
+import pytest
+
 from brain_mcp.storage.database import BrainDB
 from brain_mcp.indexer.vector_store import VectorStore
-from brain_mcp.tools.store import handle_brain_store, sanitize_title
+from brain_mcp.tools.store import _strip_brain_tags, handle_brain_store, sanitize_title
 
 
 def test_sanitize_title_strips_traversal():
@@ -170,3 +176,47 @@ def test_store_sanitized_title_warning(tmp_path, mock_embedder):
     )
     assert result.get("title_sanitized") is True
     db.close()
+
+
+# --------------------------------------------------------------------------
+# Tag stripping without the quadratic scan (Sonar S8786)
+# --------------------------------------------------------------------------
+
+# The pattern _strip_brain_tags replaced, kept as the oracle: the rewrite must
+# strip exactly what it stripped, only without rescanning every newline run.
+_OLD_BRAIN_TAG_RE = re.compile(r'\n*#brain/[\w-]+\n?')
+
+_TAG_CASES = [
+    "Old content\n\n#brain/stammhirn\n",
+    "a #brain/x b",
+    "a\n#brain/x\n#brain/y\nb",
+    "#brain/x\n\n\n#brain/y",
+    "text\r\n#brain/x\r\n",
+    "#brain/ no slug\n\n",
+    "\n\n\n",
+    "",
+    "über\n#brain/präfrontal-cortex\nweiter",
+]
+
+
+@pytest.mark.parametrize("text", _TAG_CASES)
+def test_strip_brain_tags_matches_the_old_pattern(text):
+    assert _strip_brain_tags(text) == _OLD_BRAIN_TAG_RE.sub("", text)
+
+
+def test_strip_brain_tags_matches_the_old_pattern_on_random_notes():
+    rng = random.Random(20260929)
+    pieces = ["\n", "\n\n", "\r\n", "#brain/", "#brain/x", "#brain/a-b\n",
+              "word", " ", "#", "brain/"]
+    for _ in range(3000):
+        text = "".join(rng.choice(pieces) for _ in range(rng.randint(0, 12)))
+        assert _strip_brain_tags(text) == _OLD_BRAIN_TAG_RE.sub("", text), repr(text)
+
+
+def test_strip_brain_tags_is_linear_in_blank_lines():
+    """brain_store accepts 1 MB. The old pattern needed minutes for a note made
+    mostly of newlines (0.18 s at 20k, quadratic) -- one call blocked the daemon."""
+    text = "x" + "\n" * 1_000_000 + "y"
+    start = time.perf_counter()
+    assert _strip_brain_tags(text) == text
+    assert time.perf_counter() - start < 1.0

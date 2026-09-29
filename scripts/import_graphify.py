@@ -48,7 +48,10 @@ def build_note_index(db: BrainDB) -> dict[str, int]:
 
 def import_graphify(graph_path: Path, db: BrainDB, *, dry_run: bool = False) -> dict:
     """Import graphify graph.json into brain.db edges."""
-    with open(graph_path, encoding="utf-8") as f:
+    # Sonar S8707 (path from argv): graphs live in other projects' graphify-out/
+    # on purpose, so no base folder fits. The file is only read and parsed as a
+    # graph -- nothing is written there and no content is echoed back.
+    with open(graph_path, encoding="utf-8") as f:  # NOSONAR S8707 -- user-chosen input file
         graph = json.load(f)
 
     nodes = graph.get("nodes", [])

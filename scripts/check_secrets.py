@@ -2,14 +2,21 @@
 """Secret guard — blocks API keys / tokens / private keys from being committed or pushed.
 
 Used by .githooks/pre-commit (scans staged files) and .githooks/pre-push (scans all
-tracked files). Run manually:  python scripts/check_secrets.py [path ...]
-Exit code 1 if anything suspicious is found.
+tracked files). Run manually from the repo root:  python scripts/check_secrets.py [path ...]
+Exit code 1 if anything suspicious is found. Paths outside the working directory
+are never opened; they are reported on stderr and skipped.
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from brain_mcp.pathguard import resolve_within  # noqa: E402  (needs sys.path first)
 
 # (label, compiled pattern) — high-signal credential shapes.
 PATTERNS = [
@@ -56,7 +63,14 @@ def scan(paths: list[str]) -> list[tuple[str, int, str, str]]:
                           ".faiss", ".db", ".zip", ".dmg", ".mp4", ".woff", ".woff2")):
             continue
         try:
-            with open(path, encoding="utf-8", errors="replace") as fh:
+            inside = resolve_within(path, os.getcwd())
+        except ValueError as exc:
+            # Never read, but not fatal either: a tracked symlink can resolve
+            # outside the repo, and git stores the link text, not its target.
+            sys.stderr.write(f"check_secrets: skipped, outside the repository: {exc}\n")
+            continue
+        try:
+            with open(inside, encoding="utf-8", errors="replace") as fh:
                 for i, line in enumerate(fh, 1):
                     if ALLOW.search(line):
                         continue

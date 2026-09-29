@@ -102,7 +102,7 @@ class PhysicsSimulation:
         forces += diff * gravity_scale
 
         # 3. Node repulsion via cKDTree (inverse-square, radius = 80)
-        if self.repel_strength != 0.0:
+        if self.repel_strength:  # 0 switches repulsion off
             tree = cKDTree(pos)
             pairs = tree.query_pairs(r=160.0, output_type="ndarray")  # (M, 2) int
             if len(pairs):
@@ -119,7 +119,7 @@ class PhysicsSimulation:
                 np.add.at(forces, j_idx, -force_vec)
 
         # 4. Link attraction: spring force for each edge
-        if self.link_strength != 0.0 and len(self._src):
+        if self.link_strength and len(self._src):  # 0 switches springs off
             delta = pos[self._tgt] - pos[self._src]                   # (E, 3)
             dist = np.linalg.norm(delta, axis=1, keepdims=True)       # (E, 1)
             dist = np.maximum(dist, 1e-6)

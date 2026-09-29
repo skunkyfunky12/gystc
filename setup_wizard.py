@@ -82,7 +82,9 @@ def _atomic_write_json(path: Path, data: dict, indent: int = 2) -> None:
         shutil.copy2(path, path.with_name(f"{path.name}.{stamp}.bak"))
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     try:
-        tmp.write_text(payload, encoding="utf-8")
+        # Sonar S2083 follows the existing config's JSON into write_text; the
+        # paths are the fixed Claude config locations, never taken from input.
+        tmp.write_text(payload, encoding="utf-8")  # NOSONAR S2083 -- content, not path
         os.replace(tmp, path)
     except Exception:
         tmp.unlink(missing_ok=True)

@@ -1,4 +1,6 @@
-from brain_mcp.indexer.chunker import split_into_chunks, MIN_CHUNK_WORDS
+import pytest
+
+from brain_mcp.indexer.chunker import HEADING_RE, split_into_chunks, MIN_CHUNK_WORDS
 
 
 def _make_long_content(word_count: int, headings: list[str] | None = None) -> str:
@@ -158,3 +160,34 @@ def test_delete_note_cascades_chunks(tmp_path):
     count = db.execute("SELECT COUNT(*) FROM chunks WHERE note_id=?", (nid,)).fetchone()[0]
     assert count == 0
     db.close()
+
+
+# --------------------------------------------------------------------------
+# The heading pattern (Sonar S8786)
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("line, heading", [
+    ("## Architecture", "Architecture"),
+    ("### Deep dive", "Deep dive"),
+    ("##\tTabbed", "Tabbed"),
+    ("##   Extra spaces", "Extra spaces"),
+    ("## Trailing  ", "Trailing  "),
+    ("## Pasted from the web", "Pasted from the web"),   # no-break space
+    ("##　見出し", "見出し"),                               # ideographic space
+])
+def test_heading_pattern_finds_real_headings(line, heading):
+    match = HEADING_RE.search(f"intro\n{line}\nbody")
+    assert match is not None
+    assert match.group(2) == heading
+
+
+@pytest.mark.parametrize("text", ["#### Too deep", "# Top level", "##NoSpace"])
+def test_heading_pattern_ignores_non_headings(text):
+    assert HEADING_RE.search(text) is None
+
+
+@pytest.mark.parametrize("text", ["##\nJust a paragraph", "##   \nJust a paragraph"])
+def test_bare_hashes_do_not_swallow_the_next_line(text):
+    """The old whitespace run crossed the line break: a lone '##' turned the
+    following paragraph into a heading, and it vanished from the chunk body."""
+    assert HEADING_RE.search(text) is None

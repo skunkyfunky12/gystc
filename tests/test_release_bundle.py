@@ -173,9 +173,11 @@ def test_selfcheck_fails_and_reports_when_the_model_is_missing(tmp_path):
     env = dict(os.environ)
     env[bundled_model.ENV_VAR] = str(empty)  # deterministic "no model", even
     env["QT_QPA_PLATFORM"] = "offscreen"     # on a checkout that has one
+    # Relative to the working directory, exactly as build.yml passes it: the
+    # report path is refused if it leaves that directory.
     proc = subprocess.run(
-        [sys.executable, str(ROOT / "main.py"), "--selfcheck", str(report)],
-        cwd=ROOT, env=env, capture_output=True, text=True, timeout=600,
+        [sys.executable, str(ROOT / "main.py"), "--selfcheck", report.name],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=600,
     )
 
     assert proc.returncode == 1, (
@@ -328,9 +330,12 @@ def build_workflow() -> str:
 
 
 def test_build_installs_the_project_not_a_hand_written_list(build_workflow):
-    assert 'pip install ".[dashboard]"' in build_workflow, (
-        "the build must install the project so every runtime dependency ships"
+    install = next(line for line in build_workflow.splitlines() if "uv sync" in line)
+    assert "--extra dashboard" in install, (
+        "the build must install every locked runtime dependency, base + dashboard, "
+        "so every runtime dependency ships"
     )
+    assert "--group build" in install, "PyInstaller comes from the lock too"
 
 
 def test_build_does_not_reintroduce_the_partial_install(build_workflow):
@@ -405,7 +410,8 @@ def test_changelog_documents_the_version_being_shipped():
 def test_spec_bundles_the_selfcheck_and_model_resolver():
     spec = SPEC.read_text(encoding="utf-8")
     for name in ("brain.selfcheck", "brain_mcp.indexer.bundled_model",
-                 "brain_mcp.indexer.pipeline", "brain_mcp.storage.file_lock"):
+                 "brain_mcp.indexer.pipeline", "brain_mcp.storage.file_lock",
+                 "brain_mcp.pathguard"):
         assert f"'{name}'" in spec, f"{name} is imported at runtime but not bundled"
     assert "collect_all('sentence_transformers')" in spec, (
         "sentence-transformers loads its modules dynamically; static analysis misses them"

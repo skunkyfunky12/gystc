@@ -92,7 +92,9 @@ def assign_tag(file_path: Path) -> str | None:
     else:
         text = text.rstrip() + f"\n\n{tag}\n"
 
-    file_path.write_text(text, encoding="utf-8")
+    # Sonar S2083 follows the note's own text back into write_text; file_path
+    # comes from VAULT.rglob, so the write lands on the note that was read.
+    file_path.write_text(text, encoding="utf-8")  # NOSONAR S2083 -- content, not path
     return tag
 
 

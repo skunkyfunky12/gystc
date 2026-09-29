@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from brain_mcp.curation.vault_git import is_repo, commit_run
+from brain_mcp.pathguard import resolve_within
 
 _ARCHIVE = "99 Archiv"
 
@@ -40,17 +41,11 @@ def _check_base_hash(target: Path, rel: str, base_hash: str | None) -> None:
         )
 
 
-def _safe_target(vault: Path, rel: str) -> Path:
-    vault = Path(vault)
-    target = (vault / rel).resolve()
-    if not target.is_relative_to(vault.resolve()):
-        raise ValueError(f"path escapes vault: {rel}")
-    return target
-
-
 def _atomic_write(target: Path, content: str) -> None:
     tmp = target.with_suffix(target.suffix + ".tmp")
-    tmp.write_text(content, encoding="utf-8")
+    # Sonar S2083 flags the proposal's *content* reaching write_text. The path
+    # is not tainted: every caller resolved it through resolve_within.
+    tmp.write_text(content, encoding="utf-8")  # NOSONAR S2083 -- content, not path
     tmp.replace(target)
 
 
@@ -69,11 +64,11 @@ def apply_archive(vault: Path, rel: str, *, base_hash: str | None = None) -> Pat
     # or move the archive into its own subtree — refuse with a clear error.
     if Path(rel).parts and Path(rel).parts[0] == _ARCHIVE:
         raise ValueError(f"already under {_ARCHIVE}: {rel}")
-    src = _safe_target(vault, rel)
+    src = resolve_within(rel, vault)
     if not src.exists():
         raise FileNotFoundError(rel)
     _check_base_hash(src, rel, base_hash)
-    dest = _safe_target(vault, f"{_ARCHIVE}/{rel}")
+    dest = resolve_within(f"{_ARCHIVE}/{rel}", vault)
     dest.parent.mkdir(parents=True, exist_ok=True)
     final, i = dest, 1
     while final.exists():
@@ -88,7 +83,7 @@ def apply_edit(vault: Path, rel: str, new_content: str, *, base_hash: str | None
     Pass `base_hash` (sha256 of the analyzed bytes) to refuse clobbering a note
     that changed in the analyze->apply window."""
     _require_repo(vault)
-    target = _safe_target(vault, rel)
+    target = resolve_within(rel, vault)
     if not target.is_file():
         raise FileNotFoundError(rel)
     _check_base_hash(target, rel, base_hash)
@@ -98,7 +93,7 @@ def apply_edit(vault: Path, rel: str, new_content: str, *, base_hash: str | None
 def apply_create(vault: Path, rel: str, content: str) -> None:
     """Create a NEW note (e.g. a reconcile promotion). Never clobbers an existing file."""
     _require_repo(vault)
-    target = _safe_target(vault, rel)
+    target = resolve_within(rel, vault)
     if target.exists():
         raise FileExistsError(rel)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -109,7 +104,7 @@ def _replay_skip_reason(vault: Path, op: str, rel: str) -> str:
     """Distinct skip reason for replaying a partially-applied proposal — the
     rerun must report cleanly instead of crashing, and the reason must never be
     confused with a stale ('changed on disk') skip."""
-    if op == "archive" and _safe_target(vault, f"{_ARCHIVE}/{rel}").exists():
+    if op == "archive" and resolve_within(f"{_ARCHIVE}/{rel}", vault).exists():
         return f"{rel} already archived under '{_ARCHIVE}/' (proposal already applied)"
     if op == "create":
         return f"{rel} already exists — create never clobbers (proposal already applied?)"

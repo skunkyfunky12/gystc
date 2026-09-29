@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 _BAD_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _TRAVERSAL = re.compile(r'\.\.[\\/]?')
-_BRAIN_TAG_RE = re.compile(r'\n*#brain/[\w-]+\n?')
+_BRAIN_TAG_RE = re.compile(r'#brain/[\w-]+\n?')
 MAX_CONTENT_SIZE = 1024 * 1024  # 1MB
 MAX_TITLE_LEN = 200
 MAX_TAGS = 20
@@ -42,6 +42,24 @@ _WINDOWS_DEVICE_NAMES = frozenset(
     + [f"COM{i}" for i in range(1, 10)]
     + [f"LPT{i}" for i in range(1, 10)]
 )
+
+
+def _strip_brain_tags(content: str) -> str:
+    """Remove every ``#brain/<slug>`` tag, the blank lines leading up to it and
+    one line break after it.
+
+    The single pattern this replaces (``\\n*#brain/...``) rescanned each run of
+    newlines from every position inside it: quadratic, and brain_store accepts
+    1 MB. Stripping the newlines before each match here is linear and removes
+    exactly the same characters.
+    """
+    parts: list[str] = []
+    pos = 0
+    for match in _BRAIN_TAG_RE.finditer(content):
+        parts.append(content[pos:match.start()].rstrip("\n"))
+        pos = match.end()
+    parts.append(content[pos:])
+    return "".join(parts)
 
 
 def sanitize_title(title: str) -> str:
@@ -113,7 +131,7 @@ def handle_brain_store(
         rel_path = f"{folder_clean}/{safe_title}.md" if folder_clean else f"{safe_title}.md"
         r_idx = classify_region(safe_title, content, path=rel_path)
 
-    content = _BRAIN_TAG_RE.sub('', content).rstrip()
+    content = _strip_brain_tags(content).rstrip()
     region_slug = REGION_NAME_TO_SLUG.get(REGION_NAMES[r_idx])
     if region_slug:
         content += f"\n\n#brain/{region_slug}\n"

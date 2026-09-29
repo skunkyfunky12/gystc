@@ -236,6 +236,29 @@ def _run_steps() -> list[dict[str, Any]]:
     return steps
 
 
+def report_path_from_argv(argv: list[str]) -> Path:
+    """Report path for ``--selfcheck [path]``: the argument after it, or a default.
+
+    The path must stay inside the working directory: the flag is how CI -- or an
+    agent driving the binary -- asks for a report, and it must not become a way
+    to write JSON over an arbitrary file. Raises ``ValueError`` otherwise.
+    """
+    default = Path.cwd() / "gystc-selfcheck.json"
+    idx = argv.index("--selfcheck")
+    if idx + 1 >= len(argv) or argv[idx + 1].startswith("-"):
+        return default
+    # Imported here, not at module level: a bundle without brain_mcp is exactly
+    # what this check must report, so it may not fail before the report exists.
+    try:
+        from brain_mcp.pathguard import resolve_within
+    except ImportError:
+        # print() is a no-op when the windowed build has no stderr at all.
+        print(f"selfcheck: brain_mcp is not importable; report goes to {default}",
+              file=sys.stderr)
+        return default
+    return resolve_within(argv[idx + 1], Path.cwd())
+
+
 def run_selfcheck(report_path: Path | None = None) -> int:
     """Run every check, write a JSON report, return a process exit code."""
     sink = _ensure_streams()
