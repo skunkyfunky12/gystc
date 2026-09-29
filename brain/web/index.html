@@ -8,11 +8,12 @@
      degrade gracefully offline. No 'unsafe-inline' for scripts: the one inline
      script is the import map, allowed by its hash (tests/test_web_csp.py
      recomputes it, so an edit to the map fails the suite, not the dashboard).
-     Styles keep 'unsafe-inline' (Sonar S7039, marked on the next line): the UI
-     writes style="" attributes into generated markup, and inline CSS cannot run
-     script. Its one leak path, url(...) to a foreign host, is closed by img-src,
-     font-src and connect-src, none of which allow a remote origin for data. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-kYe9Og/DW7s9vLqXk1iTxCOK58vvMJqTf1lHN1CJYAU=' qrc:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'" /> <!-- NOSONAR S7039: style-src only, reason above -->
+     Styles keep 'unsafe-inline' (Sonar S7039, accepted in SonarCloud with this
+     reason; the HTML analyzer ignores NOSONAR): the UI writes style="" attributes
+     into generated markup, and inline CSS cannot run script. Its one leak path,
+     url(...) to a foreign host, is closed by img-src, font-src and connect-src,
+     none of which allow a remote origin for data. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-kYe9Og/DW7s9vLqXk1iTxCOK58vvMJqTf1lHN1CJYAU=' qrc:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'" />
 <title>GYSTC</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
