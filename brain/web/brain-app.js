@@ -2494,15 +2494,18 @@ window.loadGraphData = function(jsonString) {
 // The page carries the local API token; '*' would hand every edit to whatever
 // page embeds it, and an unchecked listener lets any frame poke at the UI.
 // Read directly, not via a const: persistTweaks may run during init, before
-// this line (a const here would throw in its temporal dead zone).
+// this line (a const here would throw in its temporal dead zone). An opaque
+// origin ('null': file://, sandboxed frame) equals every other opaque origin,
+// so it proves nothing -- the bridge stays shut there in both directions.
+function hasRealOrigin() { return window.location.origin !== 'null'; }
 window.addEventListener('message', (e) => {
-  if (e.origin !== window.location.origin) return;
+  if (!hasRealOrigin() || e.origin !== window.location.origin) return;
   const d = e.data || {};
   if (d.type === '__activate_edit_mode') tweaksPanel.classList.add('visible');
   if (d.type === '__deactivate_edit_mode') tweaksPanel.classList.remove('visible');
 });
 function postToTweaksHost(message) {
-  if (window.parent === window) return; // not embedded: nobody to tell
+  if (window.parent === window || !hasRealOrigin()) return; // nobody to tell safely
   try {
     window.parent.postMessage(message, window.location.origin);
   } catch (err) {

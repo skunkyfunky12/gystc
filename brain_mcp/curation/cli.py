@@ -54,9 +54,11 @@ def cmd_analyze(args) -> None:
         print(f"Reviewable proposal written: {args.out}")
 
 
-def _preview_actions(vault: Path, actions: list[dict]) -> None:
+def _preview_actions(vault: Path, actions: list[dict]) -> int:
     """The human gate must SHOW what it approves: a real diff for edits, the full
-    target list for archives, the content for creates — never just 'op file'."""
+    target list for archives, the content for creates — never just 'op file'.
+    Returns how many actions point outside the vault (and were not read)."""
+    refused = 0
     for a in actions:
         op, rel = a["op"], a["file"]
         print(f"\n== {op} {rel}")
@@ -65,6 +67,7 @@ def _preview_actions(vault: Path, actions: list[dict]) -> None:
         except ValueError as e:
             # apply refuses this action too; the preview must not read it first.
             print(f"  REFUSED: {e}", file=sys.stderr)
+            refused += 1
             continue
         if op == "edit":
             try:
@@ -89,6 +92,7 @@ def _preview_actions(vault: Path, actions: list[dict]) -> None:
             print(f"  creates a new note ({len(content)} chars):")
             for line in content.splitlines():
                 print(f"    {line}")
+    return refused
 
 
 def cmd_apply(args) -> None:
@@ -101,7 +105,15 @@ def cmd_apply(args) -> None:
     for a in actions:
         if "base_hash" not in a and fingerprints.get(a.get("file")):
             a["base_hash"] = fingerprints[a["file"]]
-    _preview_actions(v, actions)  # --yes sees the same preview as the dry run
+    refused = _preview_actions(v, actions)  # --yes sees the same preview as the dry run
+    if refused:
+        # apply_actions would stop at the first of these with a PARTIAL commit of
+        # everything before it. A proposal that points outside the vault is not
+        # trusted in part: fix the proposal, then apply it whole.
+        print(f"\nERROR: {refused} action(s) point outside the vault — nothing applied.",
+              file=sys.stderr)
+        if args.yes:
+            sys.exit(1)
     if not args.yes:
         print(f"\nDRY RUN — {len(actions)} action(s) (pass --yes to apply):")
         for a in actions:

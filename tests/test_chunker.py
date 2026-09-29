@@ -172,6 +172,8 @@ def test_delete_note_cascades_chunks(tmp_path):
     ("##\tTabbed", "Tabbed"),
     ("##   Extra spaces", "Extra spaces"),
     ("## Trailing  ", "Trailing  "),
+    ("## Pasted from the web", "Pasted from the web"),   # no-break space
+    ("##　見出し", "見出し"),                               # ideographic space
 ])
 def test_heading_pattern_finds_real_headings(line, heading):
     match = HEADING_RE.search(f"intro\n{line}\nbody")

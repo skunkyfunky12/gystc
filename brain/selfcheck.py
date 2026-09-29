@@ -30,8 +30,6 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from brain_mcp.pathguard import resolve_within
-
 # Third-party packages that must be inside the bundle. Each one was missing from
 # the 1.4.3 release build, where their absence surfaced as an HTTP 500 per search.
 RUNTIME_PACKAGES = (
@@ -245,10 +243,20 @@ def report_path_from_argv(argv: list[str]) -> Path:
     agent driving the binary -- asks for a report, and it must not become a way
     to write JSON over an arbitrary file. Raises ``ValueError`` otherwise.
     """
+    default = Path.cwd() / "gystc-selfcheck.json"
     idx = argv.index("--selfcheck")
-    if idx + 1 < len(argv) and not argv[idx + 1].startswith("-"):
-        return resolve_within(argv[idx + 1], Path.cwd())
-    return Path.cwd() / "gystc-selfcheck.json"
+    if idx + 1 >= len(argv) or argv[idx + 1].startswith("-"):
+        return default
+    # Imported here, not at module level: a bundle without brain_mcp is exactly
+    # what this check must report, so it may not fail before the report exists.
+    try:
+        from brain_mcp.pathguard import resolve_within
+    except ImportError:
+        # print() is a no-op when the windowed build has no stderr at all.
+        print(f"selfcheck: brain_mcp is not importable; report goes to {default}",
+              file=sys.stderr)
+        return default
+    return resolve_within(argv[idx + 1], Path.cwd())
 
 
 def run_selfcheck(report_path: Path | None = None) -> int:

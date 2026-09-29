@@ -3,8 +3,8 @@
 
 Used by .githooks/pre-commit (scans staged files) and .githooks/pre-push (scans all
 tracked files). Run manually from the repo root:  python scripts/check_secrets.py [path ...]
-Exit code 1 if anything suspicious is found, 2 if a path lies outside the working
-directory (the hooks only ever pass repository files).
+Exit code 1 if anything suspicious is found. Paths outside the working directory
+are never opened; they are reported on stderr and skipped.
 """
 from __future__ import annotations
 
@@ -62,7 +62,13 @@ def scan(paths: list[str]) -> list[tuple[str, int, str, str]]:
         if path.endswith((".png", ".jpg", ".jpeg", ".ico", ".icns", ".svg",
                           ".faiss", ".db", ".zip", ".dmg", ".mp4", ".woff", ".woff2")):
             continue
-        inside = resolve_within(path, os.getcwd())  # ValueError: outside the repo
+        try:
+            inside = resolve_within(path, os.getcwd())
+        except ValueError as exc:
+            # Never read, but not fatal either: a tracked symlink can resolve
+            # outside the repo, and git stores the link text, not its target.
+            sys.stderr.write(f"check_secrets: skipped, outside the repository: {exc}\n")
+            continue
         try:
             with open(inside, encoding="utf-8", errors="replace") as fh:
                 for i, line in enumerate(fh, 1):
@@ -82,11 +88,7 @@ def scan(paths: list[str]) -> list[tuple[str, int, str, str]]:
 
 def main() -> int:
     paths = sys.argv[1:] or staged_files()
-    try:
-        findings = scan(paths)
-    except ValueError as exc:
-        sys.stderr.write(f"\n⛔ Refusing to scan: {exc}\n")
-        return 2
+    findings = scan(paths)
     if findings:
         sys.stderr.write("\n⛔ Potential secret(s) detected — commit/push blocked:\n\n")
         for path, line, name, red in findings:

@@ -94,6 +94,21 @@ def test_preview_never_reads_outside_the_vault(tmp_path, capsys):
     assert "+new line" in captured.out        # the legitimate action is still previewed
 
 
+def test_yes_applies_nothing_when_any_action_leaves_the_vault(tmp_path, capsys):
+    """apply_actions would stop at the escaping action with a PARTIAL commit of
+    whatever came before it. A refused preview must stop the run up front."""
+    v = _vault(tmp_path)
+    prop = _write_actions(tmp_path, {"actions": [
+        {"op": "edit", "file": "p.md", "new_content": "# P\nnew line\n"},
+        {"op": "edit", "file": "../outside.md", "new_content": "x\n"},
+    ]})
+    with pytest.raises(SystemExit) as info:
+        main(["apply", "--vault", str(v), "--proposals", str(prop), "--yes"])
+    assert info.value.code == 1
+    assert "old line" in (v / "p.md").read_text(encoding="utf-8")   # nothing applied
+    assert "nothing applied" in capsys.readouterr().err
+
+
 def test_yes_prints_same_preview_before_applying(tmp_path, capsys):
     v = _vault(tmp_path)
     prop = _write_actions(tmp_path, {"actions": [

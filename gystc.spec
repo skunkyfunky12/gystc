@@ -83,6 +83,7 @@ a = Analysis(
         # It must be bundled, NOT excluded.
         'brain_mcp',
         'brain_mcp.config',
+        'brain_mcp.pathguard',  # imported lazily by brain.selfcheck
         'brain_mcp.storage.database',
         'brain_mcp.storage.migrations',
         'brain_mcp.storage.file_lock',

@@ -3,10 +3,6 @@
 Usage:
     python scripts/import_graphify.py <graph.json> [--dry-run]
 
-The graph file must lie inside the directory the command runs from (usually the
-project that holds graphify-out/): an agent driving this script should not be
-able to point it at an arbitrary file.
-
 Matches graphify nodes to brain.db notes by title/path, then imports
 links as typed edges (semantic, contains, calls, etc.).
 """
@@ -19,7 +15,6 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from brain_mcp.pathguard import resolve_within
 from brain_mcp.storage.database import BrainDB
 
 
@@ -53,7 +48,10 @@ def build_note_index(db: BrainDB) -> dict[str, int]:
 
 def import_graphify(graph_path: Path, db: BrainDB, *, dry_run: bool = False) -> dict:
     """Import graphify graph.json into brain.db edges."""
-    with open(graph_path, encoding="utf-8") as f:
+    # Sonar S8707 (path from argv): graphs live in other projects' graphify-out/
+    # on purpose, so no base folder fits. The file is only read and parsed as a
+    # graph -- nothing is written there and no content is echoed back.
+    with open(graph_path, encoding="utf-8") as f:  # NOSONAR S8707 -- user-chosen input file
         graph = json.load(f)
 
     nodes = graph.get("nodes", [])
@@ -125,11 +123,7 @@ def main():
         print("Usage: python scripts/import_graphify.py <graph.json> [--dry-run]")
         sys.exit(1)
 
-    try:
-        graph_path = resolve_within(sys.argv[1], Path.cwd())
-    except ValueError as exc:
-        print(f"Error: {exc} (run from the folder that contains the graph)")
-        sys.exit(1)
+    graph_path = Path(sys.argv[1])
     dry_run = "--dry-run" in sys.argv
 
     if not graph_path.exists():

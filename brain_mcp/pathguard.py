@@ -3,8 +3,12 @@
 Paths reach GYSTC from outside in several ways: a curation proposals file,
 argv of the maintenance scripts, the ``--selfcheck`` report flag. Any of them
 can be written by an agent rather than a person, and a single ``..`` would then
-point a write or a read anywhere the process can reach. Each entry point used
-to decide this on its own (or not at all); they all call ``resolve_within`` now.
+point a write or a read anywhere the process can reach. The CLI entry points
+(curation apply/preview, --selfcheck, bundle_model --out, check_secrets) call
+``resolve_within``. The MCP write paths (tools/store.py, tools/versioning.py,
+tools/classify_tool.py) and the dashboard's /api/vault handler still carry
+their own ``resolve().is_relative_to()`` checks -- same rule, older code; new
+guards belong here.
 
 The check follows the canonical form: resolve first (``..``, absolute paths and
 symlinks all collapse into where the path really points), then compare against

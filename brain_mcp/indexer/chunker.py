@@ -3,9 +3,10 @@ from __future__ import annotations
 import hashlib
 import re
 
-# Blanks, not \s: \s also matches the line break, so a bare "##" used to take
-# the next line as its title (and the overlap with .+ backtracked).
-HEADING_RE = re.compile(r"^(#{2,3})[ \t]+(\S.*)$", re.MULTILINE)
+# Any whitespace except the line break: plain \s crossed it, so a bare "##" took
+# the next line as its title (and the overlap with .+ backtracked). No-break and
+# ideographic spaces still separate, as they did before.
+HEADING_RE = re.compile(r"^(#{2,3})[^\S\n]+(\S.*)$", re.MULTILINE)
 MIN_CHUNK_WORDS = 50
 CHUNK_THRESHOLD_WORDS = 500
 

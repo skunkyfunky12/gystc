@@ -410,7 +410,8 @@ def test_changelog_documents_the_version_being_shipped():
 def test_spec_bundles_the_selfcheck_and_model_resolver():
     spec = SPEC.read_text(encoding="utf-8")
     for name in ("brain.selfcheck", "brain_mcp.indexer.bundled_model",
-                 "brain_mcp.indexer.pipeline", "brain_mcp.storage.file_lock"):
+                 "brain_mcp.indexer.pipeline", "brain_mcp.storage.file_lock",
+                 "brain_mcp.pathguard"):
         assert f"'{name}'" in spec, f"{name} is imported at runtime but not bundled"
     assert "collect_all('sentence_transformers')" in spec, (
         "sentence-transformers loads its modules dynamically; static analysis misses them"
