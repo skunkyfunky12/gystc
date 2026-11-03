@@ -64,11 +64,11 @@ class BrainState:
     # reconcile pass is running or the embedding pass is still pending.
     model_failed: bool = False
     indexing_active: bool = False
-    _index_lock: object = field(default_factory=threading.Lock)
+    _index_lock: threading.Lock = field(default_factory=threading.Lock)
     _saver_started: bool = False
-    _shutdown_lock: object = field(default_factory=threading.Lock)
+    _shutdown_lock: threading.Lock = field(default_factory=threading.Lock)
     _shut_done: bool = False
-    _shut_complete: object = field(default_factory=threading.Event)
+    _shut_complete: threading.Event = field(default_factory=threading.Event)
 
 
 class _ReadyGatedEmbedder:

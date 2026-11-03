@@ -1293,7 +1293,7 @@ const settingsBackdrop = document.getElementById('settings-backdrop');
 function openSettings() {
   settingsPanel.classList.add('visible');
   settingsBackdrop.classList.add('visible');
-  loadSettings();
+  void loadSettings(); // handles its own errors
 }
 function closeSettings() {
   settingsPanel.classList.remove('visible');
@@ -1416,15 +1416,15 @@ async function saveSettingField(key, value, revertFn) {
 // Bind toggle switches
 document.getElementById('cfg-auto-index').addEventListener('change', (e) => {
   const prev = !e.target.checked;
-  saveSettingField('auto_index', e.target.checked, () => { e.target.checked = prev; });
+  void saveSettingField('auto_index', e.target.checked, () => { e.target.checked = prev; });
 });
 document.getElementById('cfg-index-startup').addEventListener('change', (e) => {
   const prev = !e.target.checked;
-  saveSettingField('index_on_startup', e.target.checked, () => { e.target.checked = prev; });
+  void saveSettingField('index_on_startup', e.target.checked, () => { e.target.checked = prev; });
 });
 document.getElementById('cfg-log-level').addEventListener('change', (e) => {
   const prev = e.target.value;
-  saveSettingField('log_level', e.target.value, () => { e.target.value = prev; });
+  void saveSettingField('log_level', e.target.value, () => { e.target.value = prev; });
 });
 
 // Reindex button
@@ -1445,7 +1445,7 @@ reindexBtn.addEventListener('click', async () => {
     } else {
       statusEl.textContent = data.indexed + ' notes indexed in ' + data.elapsed + 's';
       statusEl.style.color = 'var(--accent)';
-      loadSettings();
+      void loadSettings();
     }
   } catch (e) {
     statusEl.textContent = 'Error: ' + e.message;
